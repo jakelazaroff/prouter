@@ -6,6 +6,19 @@ import { layout, match, Router, route } from "./router.js";
 
 const c = () => null;
 
+// Type-level tests: verify param inference at typecheck time
+{
+	const _paramRoute = route(":id", { component: c });
+	/** @type {string} */ const _id = match([_paramRoute], ["42"])[0].params.id;
+
+	const _multiParam = route(":category/:id", { component: c });
+	/** @type {string} */ const _cat = match([_multiParam], ["a", "b"])[0].params.category;
+	/** @type {string} */ const _mid = match([_multiParam], ["a", "b"])[0].params.id;
+
+	const _noParams = route("about", { component: c });
+	/** @type {{}} */ const _empty = match([_noParams], ["about"])[0].params;
+}
+
 /** Strip preact's internal __v counter so vnodes can be compared structurally. */
 function strip(/** @type {any} */ vnode) {
 	if (vnode == null || typeof vnode !== "object") return vnode;

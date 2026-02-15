@@ -2,10 +2,25 @@
 import { Component, h } from "preact";
 
 /**
+ * Extracts param names from a route path string.
+ * e.g. "posts/:id" → { id: string }, ":category/:id" → { category: string, id: string }
+ *
+ * @template {string} T
+ * @typedef {T extends `${string}:${infer P}/${infer Rest}`
+ *   ? Record<P, string> & ParamsFromPath<Rest>
+ *   : T extends `${string}:${infer P}`
+ *     ? Record<P, string>
+ *     : {}} ParamsFromPath
+ */
+
+/**
+ * @template {string} [P=string]
+ * @template [Params=ParamsFromPath<P>]
  * @typedef {object} Route
- * @property {string} [path]
+ * @property {P} [path]
  * @property {AnyComponent} component
- * @property {Route[]} children
+ * @property {Route<any, any>[]} children
+ * @property {Params} [_params] - phantom field for type inference, not used at runtime
  */
 
 /**
@@ -14,22 +29,23 @@ import { Component, h } from "preact";
  */
 
 /**
+ * @template {string} P
  * @overload
- * @param {string} path
+ * @param {P} path
  * @param {RouteOptions} options
- * @param {Route[]} [children]
- * @returns {Route}
+ * @param {Route<any, any>[]} [children]
+ * @returns {Route<P>}
  */
 /**
  * @overload
  * @param {RouteOptions} options
- * @returns {Route}
+ * @returns {Route<"", {}>}
  */
 /**
  * @param {string | RouteOptions} path
  * @param {RouteOptions} [options]
- * @param {Route[]} [children]
- * @returns {Route}
+ * @param {Route<any, any>[]} [children]
+ * @returns {Route<any, any>}
  */
 export function route(path, options, children = []) {
 	if (typeof path === "string")
@@ -44,14 +60,14 @@ export function route(path, options, children = []) {
 
 /**
  * @param {RouteOptions} options
- * @param {Route[]} children
- * @returns {Route}
+ * @param {Route<any, any>[]} children
+ * @returns {Route<"", {}>}
  */
 export function layout(options, children) {
 	return { path: undefined, component: options.component, children };
 }
 
-/** @extends {Component<{ route: Route, url: string }>} */
+/** @extends {Component<{ route: Route<any, any>, url: string }>} */
 export class Router extends Component {
 	render() {
 		const segments = this.props.url.split("/").filter(Boolean);
@@ -70,16 +86,18 @@ export class Router extends Component {
 }
 
 /**
+ * @template {string} [P=string]
+ * @template [Params=ParamsFromPath<P>]
  * @typedef {object} RouteMatch
- * @property {Route} route
- * @property {Record<string, string>} params
+ * @property {Route<P, Params>} route
+ * @property {Params} params
  */
 
 /**
- * @param {Route[]} routes
+ * @param {Route<any, any>[]} routes
  * @param {string[]} segments
  * @param {number} [index]
- * @returns {RouteMatch[]}
+ * @returns {RouteMatch<any, any>[]}
  */
 export function match(routes, segments, index = 0) {
 	rte: for (const r of routes) {
