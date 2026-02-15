@@ -78,15 +78,78 @@ export function layout(options, children) {
   return {path: undefined, component: options.component, children}
 }
 
-/** @extends {Component<{route: Route<any, any>, url: string}, {error?: any}>} */
+/**
+ * @typedef {object} Source
+ * @property {() => string} read
+ * @property {(url: string, replace?: boolean) => void} write
+ */
+
+/** @type {Source} */
+export const pathname = {
+  read: () => location.pathname + location.search,
+  write: (url, replace) =>
+    replace ? history.replaceState(null, "", url) : history.pushState(null, "", url),
+}
+
+/** @type {Source} */
+export const hash = {
+  read: () => location.hash.slice(1) || "/",
+  write: (url, replace) =>
+    replace ? history.replaceState(null, "", `#${url}`) : history.pushState(null, "", `#${url}`),
+}
+
+/** @type {Source} */
+let activeSource = pathname
+let currentUrl = typeof location !== "undefined" ? activeSource.read() : "/"
+
+/** @type {Set<Component>} */
+const subscribers = new Set()
+
+function notifySubscribers() {
+  for (const c of subscribers) c.forceUpdate()
+}
+
+/** @param {Source} source */
+export function init(source) {
+  activeSource = source
+  currentUrl = typeof location !== "undefined" ? source.read() : "/"
+}
+
+/**
+ * @param {string} to
+ * @param {{ replace?: boolean }} [options]
+ */
+export function navigate(to, options) {
+  activeSource.write(to, options?.replace)
+  currentUrl = to
+  notifySubscribers()
+}
+
+if (typeof addEventListener !== "undefined") {
+  addEventListener("popstate", () => {
+    currentUrl = activeSource.read()
+    notifySubscribers()
+  })
+}
+
+/** @extends {Component<{route: Route<any, any>, url?: string}, {error?: any}>} */
 export class Router extends Component {
   state = /** @type {{error?: any}} */ ({})
 
-  render() {
-    const [pathname, search] = this.props.url.split("?")
-    const segments = pathname.split("/").filter(Boolean)
+  componentDidMount() {
+    if (!this.props.url) subscribers.add(this)
+  }
 
-    const query = Object.fromEntries(new URLSearchParams(search))
+  componentWillUnmount() {
+    subscribers.delete(this)
+  }
+
+  render() {
+    const url = this.props.url ?? currentUrl
+    const [pn, s] = url.split("?")
+    const segments = pn.split("/").filter(Boolean)
+
+    const query = Object.fromEntries(new URLSearchParams(s))
     const matches = match([this.props.route], segments)
     if (!matches.length) return null
 

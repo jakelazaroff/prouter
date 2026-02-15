@@ -1,8 +1,8 @@
 import {strict as assert} from "node:assert"
-import {describe, test} from "node:test"
+import {beforeEach, describe, test} from "node:test"
 import {h} from "preact"
 
-import {layout, match, Router, route} from "./router.js"
+import {init, layout, match, navigate, Router, route} from "./router.js"
 
 const c = () => null
 
@@ -120,7 +120,8 @@ describe("match", () => {
   test("stops at in-progress boundary (promise children)", () => {
     const parent = route("section", {component: c})
     // Simulate in-progress loading by assigning a promise
-    /** @type {any} */ ;(parent).children = Promise.resolve({default: []})
+    /** @type {any} */
+    parent.children = Promise.resolve({default: []})
     const root = layout({component: c}, [parent])
 
     const result = match([root], ["section", "page"])
@@ -220,7 +221,10 @@ describe("Router", () => {
     const Home = () => h("p", null, "home")
     const root = route({component: Home})
 
-    const tree = new Router({route: root, url: "/?hello%20world=foo%26bar"}).render()
+    const tree = new Router({
+      route: root,
+      url: "/?hello%20world=foo%26bar",
+    }).render()
     assertVNode(tree, h(Home, {params: {}, query: {"hello world": "foo&bar"}}))
   })
 
@@ -303,5 +307,107 @@ describe("Router", () => {
       tree,
       h(c, {params: {}, query: {}}, h(Section, {params: {}, query: {}, loading: true, error: err})),
     )
+  })
+})
+
+function memory(url = "/") {
+  const source = {
+    url,
+    read: () => source.url,
+    write: (/** @type {string} */ u) => {
+      source.url = u
+    },
+  }
+  return source
+}
+
+describe("navigate", () => {
+  test("updates currentUrl and triggers re-render", () => {
+    const mem = memory()
+    init(mem)
+
+    const Home = () => h("p", null, "home")
+    const About = () => h("p", null, "about")
+    const root = layout({component: c}, [
+      route({component: Home}),
+      route("about", {component: About}),
+    ])
+
+    const router = new Router({route: root})
+    let rendered = false
+    router.forceUpdate = () => {
+      rendered = true
+    }
+    router.componentDidMount()
+
+    const tree1 = router.render()
+    assertVNode(tree1, h(c, {params: {}, query: {}}, h(Home, {params: {}, query: {}})))
+
+    navigate("/about")
+    assert.ok(rendered)
+    assert.equal(mem.url, "/about")
+
+    const tree2 = router.render()
+    assertVNode(tree2, h(c, {params: {}, query: {}}, h(About, {params: {}, query: {}})))
+
+    router.componentWillUnmount()
+  })
+
+  test("Router with explicit url prop ignores navigate", () => {
+    const mem = memory()
+    init(mem)
+
+    const Home = () => h("p", null, "home")
+    const root = route({component: Home})
+
+    const router = new Router({route: root, url: "/"})
+    let rendered = false
+    router.forceUpdate = () => {
+      rendered = true
+    }
+    router.componentDidMount()
+
+    navigate("/other")
+    assert.ok(!rendered)
+
+    router.componentWillUnmount()
+  })
+
+  test("multiple subscribers all get notified", () => {
+    const mem = memory()
+    init(mem)
+
+    const root = route({component: c})
+    const router1 = new Router({route: root})
+    const router2 = new Router({route: root})
+    let count = 0
+    router1.forceUpdate = () => count++
+    router2.forceUpdate = () => count++
+    router1.componentDidMount()
+    router2.componentDidMount()
+
+    navigate("/foo")
+    assert.equal(count, 2)
+
+    router1.componentWillUnmount()
+    router2.componentWillUnmount()
+  })
+
+  test("unsubscribed router does not get notified", () => {
+    const mem = memory()
+    init(mem)
+
+    const root = route({component: c})
+    const router = new Router({route: root})
+    let count = 0
+    router.forceUpdate = () => count++
+    router.componentDidMount()
+
+    navigate("/a")
+    assert.equal(count, 1)
+
+    router.componentWillUnmount()
+    navigate("/b")
+    assert.equal(count, 1)
   })
 })
