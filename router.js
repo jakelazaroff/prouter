@@ -50,14 +50,20 @@ import {Component, h} from "preact"
  * @returns {Route<any, any>}
  */
 export function route(path, options, children = []) {
-  if (typeof path === "string")
-    return {
-      path,
-      component: /** @type {RouteOptions} */ (options).component,
-      children,
-    }
+  // "index" routes with no path match all remaining
+  if (typeof path !== "string") return {path: undefined, component: path.component, children: []}
 
-  return {path: undefined, component: path.component, children: []}
+  // "normal" routes match a path
+  return {path, component: /** @type {RouteOptions} */ (options).component, children}
+}
+
+/**
+ * @param {RouteOptions} options
+ * @param {Route<any, any>[]} children
+ * @returns {Route<"", {}>}
+ */
+export function layout(options, children) {
+  return {path: undefined, component: options.component, children}
 }
 
 /**
@@ -68,15 +74,6 @@ export function route(path, options, children = []) {
  * @prop {boolean} [loading]
  * @prop {any} [error]
  */
-
-/**
- * @param {RouteOptions} options
- * @param {Route<any, any>[]} children
- * @returns {Route<"", {}>}
- */
-export function layout(options, children) {
-  return {path: undefined, component: options.component, children}
-}
 
 /**
  * @typedef {object} Source
@@ -99,20 +96,45 @@ export const hash = {
 }
 
 /** @type {Source} */
-let activeSource = pathname
-let currentUrl = typeof location !== "undefined" ? activeSource.read() : "/"
+let source = pathname
 
 /** @type {Set<Component>} */
 const subscribers = new Set()
 
-function notifySubscribers() {
+function notify() {
   for (const c of subscribers) c.forceUpdate()
 }
 
-/** @param {Source} source */
-export function init(source) {
-  activeSource = source
-  currentUrl = typeof location !== "undefined" ? source.read() : "/"
+/** @param {MouseEvent} e */
+function handleClick(e) {
+  if (e.defaultPrevented) return
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
+  if (e.button !== 0) return
+
+  const link = /** @type {HTMLAnchorElement | null} */ (
+    /** @type {HTMLElement} */ (e.target).closest("a[href]")
+  )
+  if (!link) return
+
+  const url = new URL(link.href, location.origin)
+  if (url.origin !== location.origin) return
+
+  e.preventDefault()
+  navigate(url.pathname + url.search)
+}
+
+/**
+ * @param {object} [options]
+ * @param {Source} [options.source]
+ */
+export function init(options) {
+  if (options?.source) source = options.source
+
+  if (typeof addEventListener !== "undefined") {
+    addEventListener("click", handleClick)
+    addEventListener("auxclick", handleClick)
+    addEventListener("popstate", notify)
+  }
 }
 
 /**
@@ -120,16 +142,8 @@ export function init(source) {
  * @param {{ replace?: boolean }} [options]
  */
 export function navigate(to, options) {
-  activeSource.write(to, options?.replace)
-  currentUrl = to
-  notifySubscribers()
-}
-
-if (typeof addEventListener !== "undefined") {
-  addEventListener("popstate", () => {
-    currentUrl = activeSource.read()
-    notifySubscribers()
-  })
+  source.write(to, options?.replace)
+  notify()
 }
 
 /** @extends {Component<{route: Route<any, any>, url?: string}, {error?: any}>} */
@@ -145,7 +159,7 @@ export class Router extends Component {
   }
 
   render() {
-    const url = this.props.url ?? currentUrl
+    const url = this.props.url ?? source.read()
     const [pn, s] = url.split("?")
     const segments = pn.split("/").filter(Boolean)
 

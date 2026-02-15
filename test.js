@@ -1,5 +1,5 @@
 import {strict as assert} from "node:assert"
-import {beforeEach, describe, test} from "node:test"
+import {describe, test} from "node:test"
 import {h} from "preact"
 
 import {init, layout, match, navigate, Router, route} from "./router.js"
@@ -324,7 +324,7 @@ function memory(url = "/") {
 describe("navigate", () => {
   test("updates currentUrl and triggers re-render", () => {
     const mem = memory()
-    init(mem)
+    init({source: mem})
 
     const Home = () => h("p", null, "home")
     const About = () => h("p", null, "about")
@@ -355,7 +355,7 @@ describe("navigate", () => {
 
   test("Router with explicit url prop ignores navigate", () => {
     const mem = memory()
-    init(mem)
+    init({source: mem})
 
     const Home = () => h("p", null, "home")
     const root = route({component: Home})
@@ -375,7 +375,7 @@ describe("navigate", () => {
 
   test("multiple subscribers all get notified", () => {
     const mem = memory()
-    init(mem)
+    init({source: mem})
 
     const root = route({component: c})
     const router1 = new Router({route: root})
@@ -395,7 +395,7 @@ describe("navigate", () => {
 
   test("unsubscribed router does not get notified", () => {
     const mem = memory()
-    init(mem)
+    init({source: mem})
 
     const root = route({component: c})
     const router = new Router({route: root})
