@@ -7,23 +7,34 @@ import {init, layout, match, navigate, Router, route} from "./router.js"
 const c = () => null
 
 // Type-level tests: verify param inference at typecheck time
+/** @template T @param {T | undefined} v @returns {T} */
+function defined(v) {
+  if (v === undefined) throw new Error("expected defined")
+  return v
+}
 {
-  const _paramRoute = route(":id", {component: c})
-  /** @type {string} */ const _id = match([_paramRoute], ["42"])[0].params.id
+  const paramRoute = route(":id", {component: c})
+  /** @type {string} */
+  const id = defined(match([paramRoute], ["42"])[0]).params.id
+  void id
 
-  const _multiParam = route(":category/:id", {component: c})
-  /** @type {string} */ const _cat = match([_multiParam], ["a", "b"])[0].params.category
-  /** @type {string} */ const _mid = match([_multiParam], ["a", "b"])[0].params.id
+  const multiParam = route(":category/:id", {component: c})
+  /** @type {string} */
+  const cat = defined(match([multiParam], ["a", "b"])[0]).params.category
+  /** @type {string} */
+  const mid = defined(match([multiParam], ["a", "b"])[0]).params.id
+  void cat, void mid
 
-  const _noParams = route("about", {component: c})
-  /** @type {{}} */ const _empty = match([_noParams], ["about"])[0].params
+  const noParams = route("about", {component: c})
+  /** @type {{}} */
+  const empty = defined(match([noParams], ["about"])[0]).params
+  void empty
 
   // Verify Route type still infers params from path
-  /** @type {import("./router.js").Route<":id", {id: string}>} */ const _typed = _paramRoute
-  /** @type {import("./router.js").Route<":category/:id", {category: string, id: string}>} */ const _multi =
-    _multiParam
+  void /** @type {import("./router.js").Route<":id", {id: string}>} */ (paramRoute)
+  void /** @type {import("./router.js").Route<":category/:id", {category: string, id: string}>} */ (multiParam)
   // @ts-expect-error — wrong param shape must be rejected
-  /** @type {import("./router.js").Route<":id", {bogus: string}>} */ const _bad = _paramRoute
+  void /** @type {import("./router.js").Route<":id", {bogus: string}>} */ (paramRoute)
 }
 
 /** Strip preact's internal __v counter so vnodes can be compared structurally. */

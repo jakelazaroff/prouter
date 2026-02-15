@@ -173,7 +173,7 @@ export class NavLink extends Component {
 
   render() {
     const {href, exact} = this.props
-    const url = source.read().split("?")[0]
+    const [url = ""] = source.read().split("?")
     const urlSegs = url.split("/").filter(Boolean)
     const hrefSegs = href.split("/").filter(Boolean)
 
