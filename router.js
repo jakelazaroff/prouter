@@ -1,5 +1,5 @@
 /** @import { AnyComponent, VNode } from "preact"; */
-import { Component, h } from "preact";
+import {Component, h} from "preact"
 
 /**
  * Extracts param names from a route path string.
@@ -13,13 +13,15 @@ import { Component, h } from "preact";
  *     : {}} ParamsFromPath
  */
 
+/** @typedef {() => Promise<{default: Route<any, any>[]}>} LazyChildren */
+
 /**
  * @template {string} [P=string]
  * @template [Params=ParamsFromPath<P>]
  * @typedef {object} Route
  * @property {P} [path]
  * @property {AnyComponent} component
- * @property {Route<any, any>[]} children
+ * @property {Route<any, any>[] | LazyChildren | Promise<{default: Route<any, any>[]}>} children
  * @property {Params} [_params] - phantom field for type inference, not used at runtime
  */
 
@@ -33,7 +35,7 @@ import { Component, h } from "preact";
  * @overload
  * @param {P} path
  * @param {RouteOptions} options
- * @param {Route<any, any>[]} [children]
+ * @param {Route<any, any>[] | LazyChildren} [children]
  * @returns {Route<P>}
  */
 /**
@@ -44,19 +46,27 @@ import { Component, h } from "preact";
 /**
  * @param {string | RouteOptions} path
  * @param {RouteOptions} [options]
- * @param {Route<any, any>[]} [children]
+ * @param {Route<any, any>[] | LazyChildren} [children]
  * @returns {Route<any, any>}
  */
 export function route(path, options, children = []) {
-	if (typeof path === "string")
-		return {
-			path,
-			component: /** @type {RouteOptions} */ (options).component,
-			children,
-		};
+  if (typeof path === "string")
+    return {
+      path,
+      component: /** @type {RouteOptions} */ (options).component,
+      children,
+    }
 
-	return { path: undefined, component: path.component, children: [] };
+  return {path: undefined, component: path.component, children: []}
 }
+
+/**
+ * @template {Record<string, any>} [TParams=Record<string, any>]
+ * @typedef {object} RouteProps
+ * @prop {TParams} params
+ * @prop {boolean} [loading]
+ * @prop {any} [error]
+ */
 
 /**
  * @param {RouteOptions} options
@@ -64,25 +74,55 @@ export function route(path, options, children = []) {
  * @returns {Route<"", {}>}
  */
 export function layout(options, children) {
-	return { path: undefined, component: options.component, children };
+  return {path: undefined, component: options.component, children}
 }
 
-/** @extends {Component<{ route: Route<any, any>, url: string }>} */
+/** @extends {Component<{route: Route<any, any>, url: string}, {error?: any}>} */
 export class Router extends Component {
-	render() {
-		const segments = this.props.url.split("/").filter(Boolean);
-		const matches = match([this.props.route], segments);
+  state = /** @type {{error?: any}} */ ({})
 
-		/** @type {VNode | null} */
-		let child = null;
+  render() {
+    const segments = this.props.url.split("/").filter(Boolean)
+    const matches = match([this.props.route], segments)
+    if (!matches.length) return null
 
-		for (const { route: r, params } of matches.reverse()) {
-			const props = Object.keys(params).length ? params : null;
-			child = child ? h(r.component, props, child) : h(r.component, props);
-		}
+    const deepest = matches[matches.length - 1]
+    const {children} = deepest.route
 
-		return child;
-	}
+    // lazy boundary: function → call it, store promise
+    if (typeof children === "function") {
+      deepest.route.children = children()
+      deepest.route.children
+        .then(mod => {
+          deepest.route.children = mod.default
+          this.setState({})
+        })
+        .catch(error => {
+          deepest.route.children = children
+          this.setState({error})
+        })
+    }
+
+    /** @type {VNode | null} */
+    let child = null
+
+    // build vnode tree
+    const loading = typeof children === "function" || children instanceof Promise
+
+    for (const {route: r, params} of matches.reverse()) {
+      const props = /** @type {Record<string, any>} */ ({params})
+
+      if (r === deepest.route && loading) {
+        props.loading = true
+        props.error = this.state.error
+        child = h(r.component, props)
+      } else {
+        child = child ? h(r.component, props, child) : h(r.component, props)
+      }
+    }
+
+    return child
+  }
 }
 
 /**
@@ -100,39 +140,41 @@ export class Router extends Component {
  * @returns {RouteMatch<any, any>[]}
  */
 export function match(routes, segments, index = 0) {
-	rte: for (const r of routes) {
-		// break route path into segments
-		const pathSegments = r.path?.split("/").filter(Boolean) ?? [];
+  rte: for (const r of routes) {
+    // break route path into segments
+    const pathSegments = r.path?.split("/").filter(Boolean) ?? []
 
-		// if there are more path segments than remaining route segments, there's no match
-		if (pathSegments.length > segments.length + index) return [];
+    // if there are more path segments than remaining route segments, there's no match
+    if (pathSegments.length > segments.length + index) return []
 
-		/** @type {Record<string, string>} */
-		const params = {};
+    /** @type {Record<string, string>} */
+    const params = {}
 
-		// iterate through the path segments
-		for (let i = 0; i < pathSegments.length; i++) {
-			// get the corresponding path and url segment
-			const pathSeg = pathSegments[i];
-			const urlSeg = segments[index + i];
+    // iterate through the path segments
+    for (let i = 0; i < pathSegments.length; i++) {
+      // get the corresponding path and url segment
+      const pathSeg = pathSegments[i]
+      const urlSeg = segments[index + i]
 
-			// if the path segment is a param, set the param
-			if (pathSeg.startsWith(":")) params[pathSeg.slice(1)] = urlSeg;
-			// otherwise, if the path and route don't match, continue with the next route
-			else if (pathSeg !== urlSeg) continue rte;
-		}
+      // if the path segment is a param, set the param
+      if (pathSeg.startsWith(":")) params[pathSeg.slice(1)] = urlSeg
+      // otherwise, if the path and route don't match, continue with the next route
+      else if (pathSeg !== urlSeg) continue rte
+    }
 
-		const next = index + pathSegments.length;
+    const next = index + pathSegments.length
 
-		// if there are children, append any matching child routes
-		if (r.children.length) {
-			const child = match(r.children, segments, next);
-			if (child.length) return [{ route: r, params }].concat(child);
-		}
+    // if children are lazy (function or promise), return partial match
+    if (typeof r.children === "function" || r.children instanceof Promise) {
+      if (next <= segments.length) return [{route: r, params}]
+    } else if (r.children.length) {
+      const child = match(r.children, segments, next)
+      if (child.length) return [{route: r, params}].concat(child)
+    }
 
-		// if this route is the last, return the route
-		if (next === segments.length) return [{ route: r, params }];
-	}
+    // if this route is the last, return the route
+    if (next === segments.length) return [{route: r, params}]
+  }
 
-	return [];
+  return []
 }

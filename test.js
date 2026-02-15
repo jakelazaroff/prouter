@@ -12,11 +12,22 @@ const c = () => null;
 	/** @type {string} */ const _id = match([_paramRoute], ["42"])[0].params.id;
 
 	const _multiParam = route(":category/:id", { component: c });
-	/** @type {string} */ const _cat = match([_multiParam], ["a", "b"])[0].params.category;
-	/** @type {string} */ const _mid = match([_multiParam], ["a", "b"])[0].params.id;
+	/** @type {string} */ const _cat = match([_multiParam], ["a", "b"])[0].params
+		.category;
+	/** @type {string} */ const _mid = match([_multiParam], ["a", "b"])[0].params
+		.id;
 
 	const _noParams = route("about", { component: c });
 	/** @type {{}} */ const _empty = match([_noParams], ["about"])[0].params;
+
+	// Verify Route type still infers params from path
+	/** @type {import("./router.js").Route<":id", {id: string}>} */ const _typed =
+		_paramRoute;
+	/** @type {import("./router.js").Route<":category/:id", {category: string, id: string}>} */ const _multi =
+		_multiParam;
+	// @ts-expect-error — wrong param shape must be rejected
+	/** @type {import("./router.js").Route<":id", {bogus: string}>} */ const _bad =
+		_paramRoute;
 }
 
 /** Strip preact's internal __v counter so vnodes can be compared structurally. */
@@ -99,6 +110,31 @@ describe("match", () => {
 		]);
 	});
 
+	test("stops at lazy boundary (function children)", () => {
+		const lazyChildren = () => Promise.resolve({ default: [] });
+		const parent = route("section", { component: c }, lazyChildren);
+		const root = layout({ component: c }, [parent]);
+
+		const result = match([root], ["section", "page"]);
+		assert.deepEqual(result, [
+			{ route: root, params: {} },
+			{ route: parent, params: {} },
+		]);
+	});
+
+	test("stops at in-progress boundary (promise children)", () => {
+		const parent = route("section", { component: c });
+		// Simulate in-progress loading by assigning a promise
+		/** @type {any} */ (parent).children = Promise.resolve({ default: [] });
+		const root = layout({ component: c }, [parent]);
+
+		const result = match([root], ["section", "page"]);
+		assert.deepEqual(result, [
+			{ route: root, params: {} },
+			{ route: parent, params: {} },
+		]);
+	});
+
 	test("matches nested index route", () => {
 		const index = route({ component: c });
 		const settings = route("settings", { component: c }, [index]);
@@ -119,7 +155,7 @@ describe("Router", () => {
 		const root = route({ component: Home });
 
 		const tree = new Router({ route: root, url: "/" }).render();
-		assertVNode(tree, h(Home, null));
+		assertVNode(tree, h(Home, { params: {} }));
 	});
 
 	test("renders a layout wrapping a child", () => {
@@ -130,7 +166,7 @@ describe("Router", () => {
 		]);
 
 		const tree = new Router({ route: root, url: "/about" }).render();
-		assertVNode(tree, h(Shell, null, h(About, null)));
+		assertVNode(tree, h(Shell, { params: {} }, h(About, { params: {} })));
 	});
 
 	test("renders nested layouts", () => {
@@ -145,7 +181,14 @@ describe("Router", () => {
 		]);
 
 		const tree = new Router({ route: root, url: "/settings/profile" }).render();
-		assertVNode(tree, h(Shell, null, h(Settings, null, h(Profile, null))));
+		assertVNode(
+			tree,
+			h(
+				Shell,
+				{ params: {} },
+				h(Settings, { params: {} }, h(Profile, { params: {} })),
+			),
+		);
 	});
 
 	test("renders index route when no further segments", () => {
@@ -158,7 +201,7 @@ describe("Router", () => {
 		]);
 
 		const tree = new Router({ route: root, url: "/" }).render();
-		assertVNode(tree, h(Shell, null, h(Home, null)));
+		assertVNode(tree, h(Shell, { params: {} }, h(Home, { params: {} })));
 	});
 
 	test("returns null when nothing matches", () => {
@@ -168,10 +211,94 @@ describe("Router", () => {
 	});
 
 	test("passes params to matched components", () => {
-		const Post = (/** @type {any} */ props) => h("p", null, props.id);
+		const Post = (/** @type {any} */ props) => h("p", null, props.params.id);
 		const root = route(":id", { component: Post });
 
 		const tree = new Router({ route: root, url: "/42" }).render();
-		assertVNode(tree, h(Post, { id: "42" }));
+		assertVNode(tree, h(Post, { params: { id: "42" } }));
+	});
+
+	test("renders loading state for lazy children", () => {
+		const Shell = (/** @type {any} */ props) => h("div", null, props.children);
+		const Section = (/** @type {any} */ props) =>
+			props.loading
+				? h("p", null, "loading...")
+				: h("div", null, props.children);
+		const lazyChildren = () => Promise.resolve({ default: [] });
+		const root = layout({ component: Shell }, [
+			route("section", { component: Section }, lazyChildren),
+		]);
+
+		const tree = new Router({ route: root, url: "/section/page" }).render();
+		assertVNode(
+			tree,
+			h(Shell, { params: {} }, h(Section, { params: {}, loading: true })),
+		);
+	});
+
+	test("renders resolved lazy children after load", async () => {
+		const Shell = (/** @type {any} */ props) => h("div", null, props.children);
+		const Section = (/** @type {any} */ props) =>
+			h("section", null, props.children);
+		const Page = () => h("p", null, "page");
+
+		const sectionRoute = route("section", { component: Section }, () =>
+			Promise.resolve({ default: [route("page", { component: Page })] }),
+		);
+		const root = layout({ component: Shell }, [sectionRoute]);
+
+		const router = new Router({ route: root, url: "/section/page" });
+		let rendered = false;
+		router.setState = () => {
+			rendered = true;
+		};
+
+		router.render();
+		// Wait for the promise to resolve
+		await new Promise((r) => setTimeout(r, 0));
+		assert.ok(rendered);
+
+		// After resolve, children is now an array — re-render
+		const tree = router.render();
+		assertVNode(
+			tree,
+			h(
+				Shell,
+				{ params: {} },
+				h(Section, { params: {} }, h(Page, { params: {} })),
+			),
+		);
+	});
+
+	test("renders error state for failed lazy children", async () => {
+		const Section = (/** @type {any} */ props) =>
+			props.error ? h("p", null, "error") : h("div", null, props.children);
+		const err = new Error("load failed");
+
+		const sectionRoute = route("section", { component: Section }, () =>
+			Promise.reject(err),
+		);
+		const root = layout({ component: c }, [sectionRoute]);
+
+		const router = new Router({ route: root, url: "/section/page" });
+		let stateUpdate = {};
+		router.setState = (/** @type {any} */ s) => {
+			stateUpdate = s;
+		};
+
+		router.render();
+		await new Promise((r) => setTimeout(r, 0));
+		assert.deepEqual(stateUpdate, { error: err });
+
+		router.state = stateUpdate;
+		const tree = router.render();
+		assertVNode(
+			tree,
+			h(
+				c,
+				{ params: {} },
+				h(Section, { params: {}, loading: true, error: err }),
+			),
+		);
 	});
 });
