@@ -1,0 +1,19 @@
+{
+  "name": "prouter",
+  "version": "0.1.0",
+  "description": "",
+  "license": "MPL-2.0",
+  "author": "",
+  "type": "module",
+  "main": "router.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "peerDependencies": {
+    "preact": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^5.9.3"
+  }
+}
