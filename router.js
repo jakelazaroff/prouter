@@ -64,6 +64,7 @@ export function route(path, options, children = []) {
  * @template {Record<string, any>} [TParams=Record<string, any>]
  * @typedef {object} RouteProps
  * @prop {TParams} params
+ * @prop {Record<string, string>} query
  * @prop {boolean} [loading]
  * @prop {any} [error]
  */
@@ -82,7 +83,10 @@ export class Router extends Component {
   state = /** @type {{error?: any}} */ ({})
 
   render() {
-    const segments = this.props.url.split("/").filter(Boolean)
+    const [pathname, search] = this.props.url.split("?")
+    const segments = pathname.split("/").filter(Boolean)
+
+    const query = Object.fromEntries(new URLSearchParams(search))
     const matches = match([this.props.route], segments)
     if (!matches.length) return null
 
@@ -110,11 +114,11 @@ export class Router extends Component {
     const loading = typeof children === "function" || children instanceof Promise
 
     for (const {route: r, params} of matches.reverse()) {
-      const props = /** @type {Record<string, any>} */ ({params})
+      const props = /** @type {Record<string, any>} */ ({params, query})
 
       if (r === deepest.route && loading) {
         props.loading = true
-        props.error = this.state.error
+        if (this.state.error) props.error = this.state.error
         child = h(r.component, props)
       } else {
         child = child ? h(r.component, props, child) : h(r.component, props)
