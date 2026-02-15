@@ -1,5 +1,12 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// prouter v0.1.0
+// https://github.com/jakelazaroff/prouter
+
 /** @import { AnyComponent, VNode } from "preact"; */
-import {Component, h} from "preact"
+import {Component, cloneElement, h} from "preact"
 
 /**
  * Extracts param names from a route path string.
@@ -146,28 +153,72 @@ export function navigate(to, options) {
   notify()
 }
 
+/**
+ * @typedef {object} NavLinkProps
+ * @prop {string} href
+ * @prop {boolean} [exact]
+ */
+
+/** @extends {Component<NavLinkProps>} */
+export class NavLink extends Component {
+  /** @override */
+  componentDidMount() {
+    subscribers.add(this)
+  }
+
+  /** @override */
+  componentWillUnmount() {
+    subscribers.delete(this)
+  }
+
+  render() {
+    const {href, exact} = this.props
+    const url = source.read().split("?")[0]
+    const urlSegs = url.split("/").filter(Boolean)
+    const hrefSegs = href.split("/").filter(Boolean)
+
+    let active = hrefSegs.length <= urlSegs.length
+    if (active) {
+      for (let i = 0; i < hrefSegs.length; i++) {
+        if (hrefSegs[i] !== urlSegs[i]) {
+          active = false
+          break
+        }
+      }
+    }
+    if (active && exact) active = hrefSegs.length === urlSegs.length
+
+    const child = /** @type {VNode} */ (this.props.children)
+    return active ? cloneElement(child, {"data-active": ""}) : child
+  }
+}
+
 /** @extends {Component<{route: Route<any, any>, url?: string}, {error?: any}>} */
 export class Router extends Component {
+  /** @override */
   state = /** @type {{error?: any}} */ ({})
 
+  /** @override */
   componentDidMount() {
     if (!this.props.url) subscribers.add(this)
   }
 
+  /** @override */
   componentWillUnmount() {
     subscribers.delete(this)
   }
 
   render() {
     const url = this.props.url ?? source.read()
-    const [pn, s] = url.split("?")
+    const [pn = "", s] = url.split("?")
     const segments = pn.split("/").filter(Boolean)
 
     const query = Object.fromEntries(new URLSearchParams(s))
     const matches = match([this.props.route], segments)
-    if (!matches.length) return null
 
-    const deepest = matches[matches.length - 1]
+    const deepest = matches.at(-1)
+    if (!deepest) return null
+
     const {children} = deepest.route
 
     // lazy boundary: function → call it, store promise
@@ -238,7 +289,7 @@ export function match(routes, segments, index = 0) {
       const urlSeg = segments[index + i]
 
       // if the path segment is a param, set the param
-      if (pathSeg.startsWith(":")) params[pathSeg.slice(1)] = urlSeg
+      if (pathSeg.startsWith(":")) params[pathSeg.slice(1)] = urlSeg ?? ""
       // otherwise, if the path and route don't match, continue with the next route
       else if (pathSeg !== urlSeg) continue rte
     }
