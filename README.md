@@ -1,6 +1,10 @@
 # prouter
 
-A 3kb type-safe Preact router in a single vanilla JavaScript file.
+A tiny type-safe router for Preact in a single vanilla JavaScript file.
+
+3.1kb unminified and gzipped! 1.4kb minified and gzipped! Zero dependencies other than Preact!
+
+> **Note:** prouter is new; the API is very subject to change!
 
 ## Install
 
@@ -12,15 +16,21 @@ Don't be put off — prouter.js a single ~350 line file, of which only ~160 line
 
 ```jsx
 import { render } from "preact";
-import { init, route, layout, Router } from "./router.js";
+import { init, route, layout, Router } from "./prouter.js";
 
-function Shell(props) { return <div>{props.children}</div> }
-function Home() { return <p>home</p> }
-function About() { return <p>about</p> }
+function Shell(props) {
+  return <div>{props.children}</div>;
+}
+function Home() {
+  return <p>home</p>;
+}
+function About() {
+  return <p>about</p>;
+}
 
 const root = layout({ component: Shell }, [
   route({ component: Home }),
-  route("about", { component: About }),
+  route("about", { component: About })
 ]);
 
 init();
@@ -52,7 +62,7 @@ Creates a pathless layout wrapper. It always matches and renders its component a
 ```js
 const root = layout({ component: Shell }, [
   route({ component: Home }),
-  route("about", { component: About }),
+  route("about", { component: About })
 ]);
 ```
 
@@ -62,7 +72,9 @@ Pass children as the last argument to `route` or `layout` to build a tree of rou
 
 ```js
 const root = layout({ component: Shell }, [
-  route("posts", { component: Posts }, [route(":id", { component: Post })]),
+  route("posts", { component: Posts }, [
+    route(":id", { component: Post })
+  ])
 ]);
 ```
 
@@ -73,7 +85,7 @@ Route params defined with `:param` syntax are inferred at the type level. Use `R
 ```js
 const postRoute = route(":id", { component: Post });
 
-/** @param {import("./router.js").RouteProps<typeof postRoute>} props */
+/** @param {import("./prouter.js").RouteProps<typeof postRoute>} props */
 function Post(props) {
   props.params.id; // string
   props.query; // Record<string, string>
@@ -81,7 +93,7 @@ function Post(props) {
 
 const commentRoute = route(":commentId", { component: Comment, parent: () => postRoute });
 
-/** @param {import("./router.js").RouteProps<typeof commentRoute>} props */
+/** @param {import("./prouter.js").RouteProps<typeof commentRoute>} props */
 function Comment(props) {
   props.params.id; // string (from parent)
   props.params.commentId; // string
@@ -94,11 +106,9 @@ Pass a function that returns a promise of child routes to create a lazy boundary
 
 ```js
 const root = layout({ component: Shell }, [
-  route(
-    "settings",
-    { component: Settings },
-    () => import("./settings-routes.js").then(mod => mod.routes),
-  ),
+  route("settings", { component: Settings }, () =>
+    import("./settings-routes.js").then(mod => mod.routes)
+  )
 ]);
 ```
 
@@ -106,7 +116,10 @@ The imported module just needs to export an array of routes:
 
 ```js
 // settings-routes.js
-export const routes = [route({ component: SettingsHome }), route("profile", { component: Profile })];
+export const routes = [
+  route({ component: SettingsHome }),
+  route("profile", { component: Profile })
+];
 ```
 
 When the router hits a lazy boundary, the component receives `loading: true` as a prop. On failure, it receives `error` with the thrown value.
@@ -124,7 +137,7 @@ Use `RouterContext` to preload routes ahead of time — for example, on hover or
 
 ```jsx
 import { useContext } from "preact/hooks";
-import { RouterContext } from "./router.js";
+import { RouterContext } from "./prouter.js";
 
 function NavItem({ href, children }) {
   const { preload } = useContext(RouterContext);
@@ -186,7 +199,7 @@ Style active links with CSS:
 By default, the router reads from `location.pathname`. Pass a different source to `init` for hash-based routing:
 
 ```js
-import { init, hash } from "./router.js";
+import { init, hash } from "./prouter.js";
 
 init({ source: hash });
 ```

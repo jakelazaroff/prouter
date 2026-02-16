@@ -5,7 +5,7 @@
   "license": "MPL-2.0",
   "author": "",
   "type": "module",
-  "main": "router.js",
+  "main": "prouter.js",
   "scripts": {
     "test": "node --test"
   },
@@ -18,9 +18,10 @@
   },
   "prettier": {
     "arrowParens": "avoid",
+    "trailingComma": "none",
     "overrides": [
       {
-        "files": "router.js",
+        "files": "prouter.js",
         "options": {
           "bracketSpacing": false,
           "semi": false

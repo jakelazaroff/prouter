@@ -86,8 +86,8 @@ export function layout(options, children) {
 export const RouterContext = createContext(
   /** @type {RouterContextValue} */ ({
     preload: () => Promise.resolve(),
-    navigate,
-  }),
+    navigate
+  })
 )
 
 /**
@@ -109,14 +109,14 @@ export const RouterContext = createContext(
 export const pathname = {
   read: () => location.pathname + location.search,
   write: (url, replace) =>
-    replace ? history.replaceState(null, "", url) : history.pushState(null, "", url),
+    replace ? history.replaceState(null, "", url) : history.pushState(null, "", url)
 }
 
 /** @type {Source} */
 export const hash = {
   read: () => location.hash.slice(1) || "/",
   write: (url, replace) =>
-    replace ? history.replaceState(null, "", `#${url}`) : history.pushState(null, "", `#${url}`),
+    replace ? history.replaceState(null, "", `#${url}`) : history.pushState(null, "", `#${url}`)
 }
 
 /** @type {Source} */
@@ -216,7 +216,7 @@ export class Router extends Component {
   #ctx = {
     preload: path =>
       this.#load((path.split("?")[0] ?? "").split("/").filter(Boolean)).catch(() => {}),
-    navigate,
+    navigate
   }
 
   /** @override */

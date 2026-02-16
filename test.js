@@ -2,7 +2,7 @@ import { strict as assert } from "node:assert";
 import { describe, test } from "node:test";
 import { h } from "preact";
 
-import { init, layout, match, navigate, Router, RouterContext, route } from "./router.js";
+import { init, layout, match, navigate, Router, RouterContext, route } from "./prouter.js";
 
 const c = () => null;
 
@@ -31,14 +31,14 @@ function defined(v) {
   void empty;
 
   // Verify Route type still infers params from path
-  void (/** @type {import("./router.js").Route<":id", {id: string}>} */ (paramRoute));
+  void (/** @type {import("./prouter.js").Route<":id", {id: string}>} */ (paramRoute));
   void (
-    /** @type {import("./router.js").Route<":category/:id", {category: string, id: string}>} */ (
+    /** @type {import("./prouter.js").Route<":category/:id", {category: string, id: string}>} */ (
       multiParam
     )
   );
   // @ts-expect-error — wrong param shape must be rejected
-  void (/** @type {import("./router.js").Route<":id", {bogus: string}>} */ (paramRoute));
+  void (/** @type {import("./prouter.js").Route<":id", {bogus: string}>} */ (paramRoute));
 
   // Verify parent option accumulates params at type level
   const parentRoute = route("posts/:postId", { component: c });
@@ -93,7 +93,7 @@ describe("match", () => {
     const result = match([root], ["about"]);
     assert.deepEqual(result, [
       { route: root, params: {} },
-      { route: about, params: {} },
+      { route: about, params: {} }
     ]);
   });
 
@@ -106,7 +106,7 @@ describe("match", () => {
     assert.deepEqual(result, [
       { route: root, params: {} },
       { route: account, params: {} },
-      { route: billing, params: {} },
+      { route: billing, params: {} }
     ]);
   });
 
@@ -119,7 +119,7 @@ describe("match", () => {
     assert.deepEqual(result, [
       { route: root, params: {} },
       { route: posts, params: {} },
-      { route: detail, params: { id: "42" } },
+      { route: detail, params: { id: "42" } }
     ]);
   });
 
@@ -131,7 +131,7 @@ describe("match", () => {
     const result = match([root], ["beta"]);
     assert.deepEqual(result, [
       { route: root, params: {} },
-      { route: beta, params: {} },
+      { route: beta, params: {} }
     ]);
   });
 
@@ -143,7 +143,7 @@ describe("match", () => {
     const result = match([root], ["section", "page"]);
     assert.deepEqual(result, [
       { route: root, params: {} },
-      { route: parent, params: {} },
+      { route: parent, params: {} }
     ]);
   });
 
@@ -157,7 +157,7 @@ describe("match", () => {
     const result = match([root], ["section", "page"]);
     assert.deepEqual(result, [
       { route: root, params: {} },
-      { route: parent, params: {} },
+      { route: parent, params: {} }
     ]);
   });
 
@@ -170,7 +170,7 @@ describe("match", () => {
     assert.deepEqual(result, [
       { route: root, params: {} },
       { route: settings, params: {} },
-      { route: index, params: {} },
+      { route: index, params: {} }
     ]);
   });
 });
@@ -192,7 +192,7 @@ describe("Router", () => {
     const tree = new Router({ route: root, url: "/about" }).render();
     assertVNode(
       unwrap(tree),
-      h(Shell, { params: {}, query: {} }, h(About, { params: {}, query: {} })),
+      h(Shell, { params: {}, query: {} }, h(About, { params: {}, query: {} }))
     );
   });
 
@@ -201,7 +201,7 @@ describe("Router", () => {
     const Settings = (/** @type {any} */ props) => h("section", null, props.children);
     const Profile = () => h("p", null, "profile");
     const root = layout({ component: Shell }, [
-      route("settings", { component: Settings }, [route("profile", { component: Profile })]),
+      route("settings", { component: Settings }, [route("profile", { component: Profile })])
     ]);
 
     const tree = new Router({ route: root, url: "/settings/profile" }).render();
@@ -210,8 +210,8 @@ describe("Router", () => {
       h(
         Shell,
         { params: {}, query: {} },
-        h(Settings, { params: {}, query: {} }, h(Profile, { params: {}, query: {} })),
-      ),
+        h(Settings, { params: {}, query: {} }, h(Profile, { params: {}, query: {} }))
+      )
     );
   });
 
@@ -221,13 +221,13 @@ describe("Router", () => {
     const About = () => h("p", null, "about");
     const root = layout({ component: Shell }, [
       route({ component: Home }),
-      route("about", { component: About }),
+      route("about", { component: About })
     ]);
 
     const tree = new Router({ route: root, url: "/" }).render();
     assertVNode(
       unwrap(tree),
-      h(Shell, { params: {}, query: {} }, h(Home, { params: {}, query: {} })),
+      h(Shell, { params: {}, query: {} }, h(Home, { params: {}, query: {} }))
     );
   });
 
@@ -250,7 +250,7 @@ describe("Router", () => {
     const Post = (/** @type {any} */ props) => h("section", null, props.children);
     const Comment = (/** @type {any} */ props) => h("p", null, props.params.commentId);
     const root = layout({ component: Shell }, [
-      route("posts/:postId", { component: Post }, [route(":commentId", { component: Comment })]),
+      route("posts/:postId", { component: Post }, [route(":commentId", { component: Comment })])
     ]);
 
     const tree = new Router({ route: root, url: "/posts/5/99" }).render();
@@ -260,8 +260,8 @@ describe("Router", () => {
       h(
         Shell,
         { params: accumulated, query: {} },
-        h(Post, { params: accumulated, query: {} }, h(Comment, { params: accumulated, query: {} })),
-      ),
+        h(Post, { params: accumulated, query: {} }, h(Comment, { params: accumulated, query: {} }))
+      )
     );
   });
 
@@ -279,7 +279,7 @@ describe("Router", () => {
 
     const tree = new Router({
       route: root,
-      url: "/?hello%20world=foo%26bar",
+      url: "/?hello%20world=foo%26bar"
     }).render();
     assertVNode(unwrap(tree), h(Home, { params: {}, query: { "hello world": "foo&bar" } }));
   });
@@ -298,13 +298,13 @@ describe("Router", () => {
       props.loading ? h("p", null, "loading...") : h("div", null, props.children);
     const lazyChildren = () => Promise.resolve([]);
     const root = layout({ component: Shell }, [
-      route("section", { component: Section }, lazyChildren),
+      route("section", { component: Section }, lazyChildren)
     ]);
 
     const tree = new Router({ route: root, url: "/section/page" }).render();
     assertVNode(
       unwrap(tree),
-      h(Shell, { params: {}, query: {} }, h(Section, { params: {}, query: {}, loading: true })),
+      h(Shell, { params: {}, query: {} }, h(Section, { params: {}, query: {}, loading: true }))
     );
   });
 
@@ -314,7 +314,7 @@ describe("Router", () => {
     const Page = () => h("p", null, "page");
 
     const sectionRoute = route("section", { component: Section }, () =>
-      Promise.resolve([route("page", { component: Page })]),
+      Promise.resolve([route("page", { component: Page })])
     );
     const root = layout({ component: Shell }, [sectionRoute]);
 
@@ -336,8 +336,8 @@ describe("Router", () => {
       h(
         Shell,
         { params: {}, query: {} },
-        h(Section, { params: {}, query: {} }, h(Page, { params: {}, query: {} })),
-      ),
+        h(Section, { params: {}, query: {} }, h(Page, { params: {}, query: {} }))
+      )
     );
   });
 
@@ -366,8 +366,8 @@ describe("Router", () => {
       h(
         c,
         { params: {}, query: {} },
-        h(Section, { params: {}, query: {}, loading: true, error: err }),
-      ),
+        h(Section, { params: {}, query: {}, loading: true, error: err })
+      )
     );
   });
 });
@@ -381,9 +381,7 @@ describe("preload", () => {
   test("resolves lazy children by path", async () => {
     const Page = () => h("p", null, "page");
     const children = [route("page", { component: Page })];
-    const sectionRoute = route("section", { component: c }, () =>
-      Promise.resolve(children),
-    );
+    const sectionRoute = route("section", { component: c }, () => Promise.resolve(children));
     const root = layout({ component: c }, [sectionRoute]);
 
     const router = new Router({ route: root, url: "/" });
@@ -394,12 +392,8 @@ describe("preload", () => {
   test("recursively resolves nested lazy boundaries", async () => {
     const Page = () => h("p", null, "page");
     const innerChildren = [route("page", { component: Page })];
-    const outerChildren = [
-      route("sub", { component: c }, () => Promise.resolve(innerChildren)),
-    ];
-    const sectionRoute = route("section", { component: c }, () =>
-      Promise.resolve(outerChildren),
-    );
+    const outerChildren = [route("sub", { component: c }, () => Promise.resolve(innerChildren))];
+    const sectionRoute = route("section", { component: c }, () => Promise.resolve(outerChildren));
     const root = layout({ component: c }, [sectionRoute]);
 
     const router = new Router({ route: root, url: "/" });
@@ -446,7 +440,7 @@ function memory(url = "/") {
     read: () => source.url,
     write: (/** @type {string} */ u) => {
       source.url = u;
-    },
+    }
   };
   return source;
 }
@@ -460,7 +454,7 @@ describe("navigate", () => {
     const About = () => h("p", null, "about");
     const root = layout({ component: c }, [
       route({ component: Home }),
-      route("about", { component: About }),
+      route("about", { component: About })
     ]);
 
     const router = new Router({ route: root });
@@ -480,7 +474,7 @@ describe("navigate", () => {
     const tree2 = router.render();
     assertVNode(
       unwrap(tree2),
-      h(c, { params: {}, query: {} }, h(About, { params: {}, query: {} })),
+      h(c, { params: {}, query: {} }, h(About, { params: {}, query: {} }))
     );
 
     router.componentWillUnmount();
