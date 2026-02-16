@@ -292,20 +292,26 @@ describe("Router", () => {
     assertVNode(unwrap(tree), h(Home, { params: {}, query: {} }));
   });
 
-  test("renders loading state for lazy children", () => {
+  test("renders Boundary/Resolver for lazy children", () => {
     const Shell = (/** @type {any} */ props) => h("div", null, props.children);
-    const Section = (/** @type {any} */ props) =>
-      props.loading ? h("p", null, "loading...") : h("div", null, props.children);
+    const Section = (/** @type {any} */ props) => h("section", null, props.children);
+    const Spinner = () => h("p", null, "loading...");
     const lazyChildren = () => Promise.resolve([]);
-    const root = layout({ component: Shell }, [
-      route("section", { component: Section }, lazyChildren)
-    ]);
+    const sectionRoute = route("section", { component: Section, fallback: Spinner }, lazyChildren);
+    const root = layout({ component: Shell }, [sectionRoute]);
 
     const tree = new Router({ route: root, url: "/section/page" }).render();
-    assertVNode(
-      unwrap(tree),
-      h(Shell, { params: {}, query: {} }, h(Section, { params: {}, query: {}, loading: true }))
-    );
+    const inner = unwrap(tree);
+    // Shell > Section > Boundary > Resolver
+    assert.equal(inner.type, Shell);
+    const section = inner.props.children;
+    assert.equal(section.type, Section);
+    const boundary = section.props.children;
+    // Boundary fallback should be Spinner vnode
+    assert.equal(boundary.props.fallback.type, Spinner);
+    // Boundary child should be Resolver
+    const resolver = boundary.props.children;
+    assert.equal(resolver.props.route, sectionRoute);
   });
 
   test("renders resolved lazy children after load", async () => {
@@ -366,7 +372,7 @@ describe("Router", () => {
       h(
         c,
         { params: {}, query: {} },
-        h(Section, { params: {}, query: {}, loading: true, error: err })
+        h(Section, { params: {}, query: {}, error: err })
       )
     );
   });
@@ -536,5 +542,111 @@ describe("navigate", () => {
     router.componentWillUnmount();
     navigate("/b");
     assert.equal(count, 1);
+  });
+});
+
+describe("Suspense", () => {
+  test("no Boundary rendered when route is pre-resolved (hydration case)", () => {
+    const Shell = (/** @type {any} */ props) => h("div", null, props.children);
+    const Section = (/** @type {any} */ props) => h("section", null, props.children);
+    const Page = () => h("p", null, "page");
+
+    // Pre-resolved: children is already an array (as if preload() was called)
+    const root = layout({ component: Shell }, [
+      route("section", { component: Section }, [route("page", { component: Page })])
+    ]);
+
+    const tree = new Router({ route: root, url: "/section/page" }).render();
+    assertVNode(
+      unwrap(tree),
+      h(
+        Shell,
+        { params: {}, query: {} },
+        h(Section, { params: {}, query: {} }, h(Page, { params: {}, query: {} }))
+      )
+    );
+  });
+
+  test("Boundary without fallback renders null while loading", () => {
+    const Section = (/** @type {any} */ props) => h("section", null, props.children);
+    const lazyChildren = () => Promise.resolve([]);
+    const sectionRoute = route("section", { component: Section }, lazyChildren);
+    const root = layout({ component: c }, [sectionRoute]);
+
+    const tree = new Router({ route: root, url: "/section/page" }).render();
+    const section = unwrap(tree).props.children;
+    const boundary = section.props.children;
+    assert.equal(boundary.props.fallback, null);
+  });
+
+  test("Resolver renders resolved child routes after load", async () => {
+    const Shell = (/** @type {any} */ props) => h("div", null, props.children);
+    const Section = (/** @type {any} */ props) => h("section", null, props.children);
+    const Page = () => h("p", null, "page");
+
+    const sectionRoute = route("section", { component: Section }, () =>
+      Promise.resolve([route("page", { component: Page })])
+    );
+    const root = layout({ component: Shell }, [sectionRoute]);
+
+    const router = new Router({ route: root, url: "/section/page" });
+    let rendered = false;
+    router.setState = () => {
+      rendered = true;
+    };
+
+    router.render();
+    await new Promise(r => setTimeout(r, 0));
+    assert.ok(rendered);
+
+    // After resolve, children is now an array — no Boundary/Resolver
+    const tree = router.render();
+    assertVNode(
+      unwrap(tree),
+      h(
+        Shell,
+        { params: {}, query: {} },
+        h(Section, { params: {}, query: {} }, h(Page, { params: {}, query: {} }))
+      )
+    );
+  });
+
+  test("fallback prop is passed through route()", () => {
+    const Spinner = () => h("p", null, "loading...");
+    const r = route("foo", { component: c, fallback: Spinner });
+    assert.equal(r.fallback, Spinner);
+  });
+
+  test("fallback prop is passed through layout()", () => {
+    const Spinner = () => h("p", null, "loading...");
+    const l = layout({ component: c, fallback: Spinner }, []);
+    assert.equal(l.fallback, Spinner);
+  });
+
+  test("SSR streaming: Boundary has __c marker for preact-render-to-string", async () => {
+    // Verify Boundary class has the __c method that preact-render-to-string looks for
+    const { renderToReadableStream } = await import("preact-render-to-string");
+    const Section = (/** @type {any} */ props) => h("section", null, props.children);
+    const Spinner = () => h("p", null, "loading...");
+    const Page = () => h("p", null, "page");
+
+    /** @type {(v: any) => void} */
+    let resolve;
+    const promise = new Promise(r => { resolve = r; });
+    const sectionRoute = route("section", { component: Section, fallback: Spinner }, () => {
+      return promise.then(() => [route("page", { component: Page })]);
+    });
+    const root = layout({ component: c }, [sectionRoute]);
+
+    const tree = new Router({ route: root, url: "/section/page" }).render();
+    const section = unwrap(tree).props.children;
+    const boundary = section.props.children;
+
+    // Verify Boundary has __c (the marker preact-render-to-string checks)
+    const boundaryInstance = new boundary.type({});
+    assert.equal(typeof boundaryInstance.__c, "function");
+
+    // @ts-ignore
+    resolve();
   });
 });

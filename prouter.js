@@ -29,6 +29,7 @@ import {Component, cloneElement, createContext, h} from "preact"
  * @property {P} [path]
  * @property {AnyComponent} component
  * @property {Route<any, any>[] | LazyChildren | Promise<Route<any, any>[]>} children
+ * @property {AnyComponent} [fallback]
  * @property {any} [error]
  * @property {Params} [_params] - phantom field for type inference, not used at runtime
  */
@@ -37,6 +38,7 @@ import {Component, cloneElement, createContext, h} from "preact"
  * @template [TParent={}]
  * @typedef {object} RouteOptions
  * @property {AnyComponent} component
+ * @property {AnyComponent} [fallback]
  * @property {() => Route<any, TParent>} [parent]
  */
 
@@ -61,11 +63,20 @@ import {Component, cloneElement, createContext, h} from "preact"
  * @returns {Route<any, any>}
  */
 export function route(path, options, children = []) {
+  let p = /** @type {string | undefined} */ (path),
+    opts = /** @type {RouteOptions} */ (options)
+  if (typeof path !== "string") {
+    p = undefined
+    opts = path
+  }
+
+  const {component, fallback} = opts
+
   // "index" routes with no path match all remaining
-  if (typeof path !== "string") return {path: undefined, component: path.component, children: []}
+  if (!p) return {path: undefined, component, fallback, children: []}
 
   // "normal" routes match a path
-  return {path, component: /** @type {RouteOptions} */ (options).component, children}
+  return {path: p, component, fallback, children}
 }
 
 /**
@@ -73,8 +84,8 @@ export function route(path, options, children = []) {
  * @param {Route<any, any>[]} children
  * @returns {Route<"", {}>}
  */
-export function layout(options, children) {
-  return {path: undefined, component: options.component, children}
+export function layout({component, fallback}, children) {
+  return {path: undefined, component, fallback, children}
 }
 
 /**
@@ -95,7 +106,6 @@ export const RouterContext = createContext(
  * @typedef {object} RouteProps
  * @prop {NonNullable<R["_params"]>} params
  * @prop {Record<string, string>} query
- * @prop {boolean} [loading]
  * @prop {any} [error]
  */
 
@@ -210,6 +220,42 @@ export class NavLink extends Component {
   }
 }
 
+/** @extends {Component<{fallback: any, children: any}>} */
+class Boundary extends Component {
+  __c() {}
+
+  /** @param {any} err */
+  componentDidCatch(err) {
+    if (!err || typeof err.then !== "function") throw err
+
+    this.setState({p: err})
+    err.then(() => this.setState({p: null})).catch(() => this.setState({p: null}))
+  }
+
+  render() {
+    return this.state.p ? this.props.fallback : this.props.children
+  }
+}
+
+/** @param {{route: Route<any, any>, segments: string[], index: number, params: Record<string, string>, query: Record<string, string>}} props */
+function Resolver(props) {
+  const {route: r, segments, index, params, query} = props
+  const {children} = r
+  if (typeof children === "function") {
+    r.children = children()
+    throw r.children
+  }
+  if (children instanceof Promise) throw children
+  const matches = match(children, segments, index)
+  if (!matches.length) return null
+  for (const m of matches) Object.assign(params, m.params)
+  let child = null
+  for (const {route: mr} of [...matches].reverse()) {
+    child = child ? h(mr.component, {params, query}, child) : h(mr.component, {params, query})
+  }
+  return child
+}
+
 /** @extends {Component<{route: Route<any, any>, url?: string}>} */
 export class Router extends Component {
   /** @type {RouterContextValue} */
@@ -276,15 +322,42 @@ export class Router extends Component {
     const params = {}
     for (const m of matches) Object.assign(params, m.params)
 
+    // compute consumed index (segments consumed by all matches)
+    let consumedIndex = 0
+    for (const m of matches) {
+      consumedIndex += m.route.path?.split("/").filter(Boolean).length ?? 0
+    }
+
     // build vnode tree
     const loading = typeof children === "function" || deepest.route.children instanceof Promise
     for (const {route: r} of matches.reverse()) {
-      const props = /** @type {Record<string, any>} */ ({params: params, query})
+      const props = /** @type {Record<string, any>} */ ({
+        params: params,
+        query
+      })
 
       if (r === deepest.route && loading) {
-        props.loading = true
-        if (deepest.route.error) props.error = deepest.route.error
-        child = h(r.component, props)
+        if (deepest.route.error) {
+          props.error = deepest.route.error
+          child = h(r.component, props)
+        } else {
+          const fallback = r.fallback ? h(r.fallback, {params, query}) : null
+          child = h(
+            r.component,
+            props,
+            h(
+              Boundary,
+              {fallback},
+              h(Resolver, {
+                route: r,
+                segments,
+                index: consumedIndex,
+                params: {...params},
+                query
+              })
+            )
+          )
+        }
       } else {
         child = child ? h(r.component, props, child) : h(r.component, props)
       }
