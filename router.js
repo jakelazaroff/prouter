@@ -20,7 +20,7 @@ import {Component, cloneElement, createContext, h} from "preact"
  *     : {}} ParamsFromPath
  */
 
-/** @typedef {() => Promise<{default: Route<any, any>[]}>} LazyChildren */
+/** @typedef {() => Promise<Route<any, any>[]>} LazyChildren */
 
 /**
  * @template {string} [P=string]
@@ -28,7 +28,7 @@ import {Component, cloneElement, createContext, h} from "preact"
  * @typedef {object} Route
  * @property {P} [path]
  * @property {AnyComponent} component
- * @property {Route<any, any>[] | LazyChildren | Promise<{default: Route<any, any>[]}>} children
+ * @property {Route<any, any>[] | LazyChildren | Promise<Route<any, any>[]>} children
  * @property {any} [error]
  * @property {Params} [_params] - phantom field for type inference, not used at runtime
  */
@@ -91,9 +91,9 @@ export const RouterContext = createContext(
 )
 
 /**
- * @template {Record<string, any>} [TParams=Record<string, any>]
+ * @template {Route<any, any>} [R=Route<any, any>]
  * @typedef {object} RouteProps
- * @prop {TParams} params
+ * @prop {NonNullable<R["_params"]>} params
  * @prop {Record<string, string>} query
  * @prop {boolean} [loading]
  * @prop {any} [error]
@@ -172,7 +172,6 @@ export function navigate(to, options) {
 
 /**
  * @typedef {object} NavLinkProps
- * @prop {string} href
  * @prop {boolean} [exact]
  */
 
@@ -189,7 +188,9 @@ export class NavLink extends Component {
   }
 
   render() {
-    const {href, exact} = this.props
+    const {exact} = this.props
+    const child = /** @type {VNode} */ (this.props.children)
+    const href = /** @type {string} */ (child.props.href)
     const [url = ""] = source.read().split("?")
     const urlSegs = url.split("/").filter(Boolean)
     const hrefSegs = href.split("/").filter(Boolean)
@@ -205,7 +206,6 @@ export class NavLink extends Component {
     }
     if (active && exact) active = hrefSegs.length === urlSegs.length
 
-    const child = /** @type {VNode} */ (this.props.children)
     return active ? cloneElement(child, {"data-active": ""}) : child
   }
 }
@@ -214,7 +214,8 @@ export class NavLink extends Component {
 export class Router extends Component {
   /** @type {RouterContextValue} */
   #ctx = {
-    preload: path => this.#load(path.split("?")[0]?.split("/").filter(Boolean)).catch(() => {}),
+    preload: path =>
+      this.#load((path.split("?")[0] ?? "").split("/").filter(Boolean)).catch(() => {}),
     navigate,
   }
 
@@ -241,8 +242,7 @@ export class Router extends Component {
 
       deepest.route.children = children()
       try {
-        const mod = await deepest.route.children
-        deepest.route.children = mod.default
+        deepest.route.children = await deepest.route.children
       } catch (err) {
         deepest.route.children = children
         deepest.route.error = err

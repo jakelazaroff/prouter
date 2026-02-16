@@ -18,7 +18,14 @@
   },
   "prettier": {
     "arrowParens": "avoid",
-    "bracketSpacing": false,
-    "semi": false
+    "overrides": [
+      {
+        "files": "router.js",
+        "options": {
+          "bracketSpacing": false,
+          "semi": false
+        }
+      }
+    ]
   }
 }
