@@ -1,37 +1,45 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>prouter — SSR Example</title>
-  <script type="importmap">
-  {
-    "imports": {
-      "preact": "https://esm.sh/preact@10",
-      "preact/hooks": "https://esm.sh/preact@10/hooks",
-      "preact-render-to-string": "https://esm.sh/preact-render-to-string@6?deps=preact@10",
-      "prouter": "/prouter.js"
-    }
-  }
-  </script>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
-  </style>
-</head>
-<body>
-  <div id="app">
-    <p>Loading — installing service worker…</p>
-  </div>
-  <script type="module">
-    const reg = await navigator.serviceWorker.register("./sw.js", { type: "module" })
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>prouter — SSR Example</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "preact": "https://esm.sh/preact@10",
+          "preact/hooks": "https://esm.sh/preact@10/hooks",
+          "htm/preact": "https://esm.sh/htm@3/preact?deps=preact@10",
+          "preact-render-to-string": "https://esm.sh/preact-render-to-string@6?deps=preact@10",
+          "prouter": "/prouter.js"
+        }
+      }
+    </script>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 600px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <p>Loading — installing service worker…</p>
+    </div>
+    <script type="module">
+      const reg = await navigator.serviceWorker.register("./sw.js", {
+        type: "module"
+      });
 
-    // First visit: SW just installed, reload so it can intercept navigation
-    if (reg.installing || reg.waiting) {
-      const sw = reg.installing || reg.waiting
-      sw.addEventListener("statechange", () => {
-        if (sw.state === "activated") location.reload()
-      })
-    }
-  </script>
-</body>
+      // First visit: SW just installed, reload so it can intercept navigation
+      if (reg.installing || reg.waiting) {
+        const sw = reg.installing || reg.waiting;
+        sw.addEventListener("statechange", () => {
+          if (sw.state === "activated") location.reload();
+        });
+      }
+    </script>
+  </body>
 </html>

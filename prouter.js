@@ -234,14 +234,20 @@ export class NavLink extends Component {
 
 /** @extends {Component<{fallback: any, children: any}>} */
 class Boundary extends Component {
-  /** @param {any} err */
-  __c(err) {
-    if (!err || typeof err.then !== "function") throw err
-    err.then(() => this.setState({p: null}), () => this.setState({p: null}))
-  }
-
   render() {
     return this.state.p ? this.props.fallback : this.props.children
+  }
+}
+
+// __c is the marker preact-render-to-string checks for SSR streaming.
+if (typeof document === "undefined") {
+  /** @param {any} err */
+  Boundary.prototype.__c = function (err) {
+    if (!err || typeof err.then !== "function") throw err
+    err.then(
+      () => this.setState({p: null}),
+      () => this.setState({p: null})
+    )
   }
 }
 
@@ -259,7 +265,10 @@ options.__e = (err, newVNode, oldVNode) => {
         const c = v.__c
         if (newVNode.__u & MODE_HYDRATE) return
         c.setState({p: err})
-        c.__c(err, newVNode)
+        err.then(
+          () => c.setState({p: null}),
+          () => c.setState({p: null})
+        )
         return
       }
     }
@@ -417,8 +426,13 @@ export async function preload(root, path) {
     const {children} = deepest.route
     if (typeof children !== "function") return
     deepest.route.children = children()
-    try { deepest.route.children = await deepest.route.children }
-    catch (err) { deepest.route.children = children; deepest.route.error = err; throw err }
+    try {
+      deepest.route.children = await deepest.route.children
+    } catch (err) {
+      deepest.route.children = children
+      deepest.route.error = err
+      throw err
+    }
   }
 }
 

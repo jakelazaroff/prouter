@@ -1,25 +1,28 @@
-import * as preact from "https://esm.sh/preact@10"
-import * as preactHooks from "https://esm.sh/preact@10/hooks?deps=preact@10"
-import { renderToStringAsync } from "https://esm.sh/preact-render-to-string@6?deps=preact@10"
+import * as htmPreact from "https://esm.sh/htm@3/preact?deps=preact@10";
+import * as preact from "https://esm.sh/preact@10";
+import * as preactHooks from "https://esm.sh/preact@10/hooks?deps=preact@10";
+import { renderToStringAsync } from "https://esm.sh/preact-render-to-string@6?deps=preact@10";
 
-const { h } = preact
+const { h } = preact;
 
-const CDN = "https://esm.sh"
-const PREACT = `${CDN}/preact@10`
-const PREACT_HOOKS = `${CDN}/preact@10/hooks`
-const RENDER_TO_STRING = `${CDN}/preact-render-to-string@6?deps=preact@10`
+const CDN = "https://esm.sh";
+const PREACT = `${CDN}/preact@10`;
+const PREACT_HOOKS = `${CDN}/preact@10/hooks`;
+const HTM_PREACT = `${CDN}/htm@3/preact?deps=preact@10`;
+const RENDER_TO_STRING = `${CDN}/preact-render-to-string@6?deps=preact@10`;
 
 const BARE_IMPORTS = {
+  '"htm/preact"': `"${HTM_PREACT}"`,
   '"preact/hooks"': `"${PREACT_HOOKS}"`,
   '"preact"': `"${PREACT}"`,
   '"prouter"': `"/prouter.js"`
-}
+};
 
 function rewriteImports(source) {
   for (const [bare, full] of Object.entries(BARE_IMPORTS)) {
-    source = source.replaceAll(bare, full)
+    source = source.replaceAll(bare, full);
   }
-  return source
+  return source;
 }
 
 /**
@@ -27,40 +30,48 @@ function rewriteImports(source) {
  * function body, and evaluates it with the given dependency map.
  */
 async function loadModule(url, deps) {
-  const res = await fetch(url)
-  let src = await res.text()
+  const res = await fetch(url);
+  let src = await res.text();
 
   // Strip JSDoc type-only imports: /** @import { X } from "Y"; */
-  src = src.replace(/\/\*\*\s*@import\b.*?\*\//gs, "")
+  src = src.replace(/\/\*\*\s*@import\b.*?\*\//gs, "");
 
   // import { a, b } from "mod" → const { a, b } = __deps["mod"]
   src = src.replace(
     /import\s*\{([^}]+)\}\s*from\s*"([^"]+)"/g,
     (_, names, mod) => `const {${names}} = __deps[${JSON.stringify(mod)}]`
-  )
+  );
 
   // Collect exported names and strip the export keyword
-  const names = []
+  const names = [];
   src = src.replace(
     /^export\s+((?:async\s+)?(?:function|class|const|let|var))\s+(\w+)/gm,
-    (_, kw, name) => { names.push(name); return `${kw} ${name}` }
-  )
+    (_, kw, name) => {
+      names.push(name);
+      return `${kw} ${name}`;
+    }
+  );
 
-  src = `"use strict";\n${src}\nreturn {${names.join(",")}}`
-  return new Function("__deps", src)(deps)
+  src = `"use strict";\n${src}\nreturn {${names.join(",")}}`;
+  return new Function("__deps", src)(deps);
 }
 
-let root, Router, preload
+let root, Router, preload;
 
 async function loadApp() {
-  if (root) return
+  if (root) return;
 
-  const prouter = await loadModule("/prouter.js", { preact })
-  const app = await loadModule("/examples/ssr/app.js", { preact, "preact/hooks": preactHooks, prouter })
+  const prouter = await loadModule("/prouter.js", { preact });
+  const app = await loadModule("/examples/ssr/app.js", {
+    preact,
+    "preact/hooks": preactHooks,
+    "htm/preact": htmPreact,
+    prouter
+  });
 
-  Router = prouter.Router
-  preload = prouter.preload
-  root = app.root
+  Router = prouter.Router;
+  preload = prouter.preload;
+  root = app.root;
 }
 
 function htmlShell(body) {
@@ -75,6 +86,7 @@ function htmlShell(body) {
     "imports": {
       "preact": "${PREACT}",
       "preact/hooks": "${PREACT_HOOKS}",
+      "htm/preact": "${HTM_PREACT}",
       "preact-render-to-string": "${RENDER_TO_STRING}",
       "prouter": "/prouter.js"
     }
@@ -105,55 +117,55 @@ function htmlShell(body) {
     hydrate(h(Router, { route: root }), document.getElementById("app"))
   </script>
 </body>
-</html>`
+</html>`;
 }
 
-self.addEventListener("install", () => self.skipWaiting())
-self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()))
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", e => e.waitUntil(self.clients.claim()));
 
-self.addEventListener("fetch", (e) => {
-  const url = new URL(e.request.url)
+self.addEventListener("fetch", e => {
+  const url = new URL(e.request.url);
 
   // Only handle same-origin requests under /examples/ssr/
-  if (url.origin !== self.location.origin) return
-  if (!url.pathname.startsWith("/examples/ssr")) return
+  if (url.origin !== self.location.origin) return;
+  if (!url.pathname.startsWith("/examples/ssr")) return;
 
   // Navigation requests: SSR
   if (e.request.mode === "navigate") {
-    e.respondWith(handleNavigation(url))
-    return
+    e.respondWith(handleNavigation(url));
+    return;
   }
 
   // JS files: rewrite bare imports (SW context has no import map)
   if (url.pathname.endsWith(".js")) {
-    e.respondWith(handleJS(url))
-    return
+    e.respondWith(handleJS(url));
+    return;
   }
-})
+});
 
 async function handleNavigation(url) {
   try {
-    await loadApp()
+    await loadApp();
 
-    const path = url.pathname.replace(/^\/examples\/ssr\/?/, "/")
-    await preload(root, path)
-    const vnode = h(Router, { route: root, url: path })
-    const body = await renderToStringAsync(vnode)
+    const path = url.pathname.replace(/^\/examples\/ssr\/?/, "/");
+    await preload(root, path);
+    const vnode = h(Router, { route: root, url: path });
+    const body = await renderToStringAsync(vnode);
     return new Response(htmlShell(body), {
       headers: { "Content-Type": "text/html" }
-    })
+    });
   } catch (err) {
     return new Response(`<pre>SSR Error: ${err?.stack || err}</pre>`, {
       status: 500,
       headers: { "Content-Type": "text/html" }
-    })
+    });
   }
 }
 
 async function handleJS(url) {
-  const res = await fetch(url)
-  const source = rewriteImports(await res.text())
+  const res = await fetch(url);
+  const source = rewriteImports(await res.text());
   return new Response(source, {
     headers: { "Content-Type": "application/javascript" }
-  })
+  });
 }
