@@ -6,7 +6,7 @@
 // https://github.com/jakelazaroff/prouter
 
 /** @import { AnyComponent, VNode } from "preact"; */
-import {Component, cloneElement, h} from "preact"
+import {Component, cloneElement, createContext, h} from "preact"
 
 /**
  * Extracts param names from a route path string.
@@ -29,21 +29,25 @@ import {Component, cloneElement, h} from "preact"
  * @property {P} [path]
  * @property {AnyComponent} component
  * @property {Route<any, any>[] | LazyChildren | Promise<{default: Route<any, any>[]}>} children
+ * @property {any} [error]
  * @property {Params} [_params] - phantom field for type inference, not used at runtime
  */
 
 /**
+ * @template [TParent={}]
  * @typedef {object} RouteOptions
  * @property {AnyComponent} component
+ * @property {() => Route<any, TParent>} [parent]
  */
 
 /**
  * @template {string} P
+ * @template [TParent={}]
  * @overload
  * @param {P} path
- * @param {RouteOptions} options
+ * @param {RouteOptions<TParent>} options
  * @param {Route<any, any>[] | LazyChildren} [children]
- * @returns {Route<P>}
+ * @returns {Route<P, ParamsFromPath<P> & TParent>}
  */
 /**
  * @overload
@@ -72,6 +76,19 @@ export function route(path, options, children = []) {
 export function layout(options, children) {
   return {path: undefined, component: options.component, children}
 }
+
+/**
+ * @typedef {object} RouterContextValue
+ * @property {(path: string) => Promise<void>} preload
+ * @property {(to: string, options?: {replace?: boolean}) => void} navigate
+ */
+
+export const RouterContext = createContext(
+  /** @type {RouterContextValue} */ ({
+    preload: () => Promise.resolve(),
+    navigate,
+  }),
+)
 
 /**
  * @template {Record<string, any>} [TParams=Record<string, any>]
@@ -193,10 +210,13 @@ export class NavLink extends Component {
   }
 }
 
-/** @extends {Component<{route: Route<any, any>, url?: string}, {error?: any}>} */
+/** @extends {Component<{route: Route<any, any>, url?: string}>} */
 export class Router extends Component {
-  /** @override */
-  state = /** @type {{error?: any}} */ ({})
+  /** @type {RouterContextValue} */
+  #ctx = {
+    preload: path => this.#load(path.split("?")[0]?.split("/").filter(Boolean)).catch(() => {}),
+    navigate,
+  }
 
   /** @override */
   componentDidMount() {
@@ -206,6 +226,29 @@ export class Router extends Component {
   /** @override */
   componentWillUnmount() {
     subscribers.delete(this)
+  }
+
+  /** @param {string[]} segments */
+  async #load(segments) {
+    while (true) {
+      // find deepest match
+      const deepest = match([this.props.route], segments).at(-1)
+      if (!deepest) return
+
+      // if deepest child has been loaded, bail out
+      const {children} = deepest.route
+      if (typeof children !== "function") return
+
+      deepest.route.children = children()
+      try {
+        const mod = await deepest.route.children
+        deepest.route.children = mod.default
+      } catch (err) {
+        deepest.route.children = children
+        deepest.route.error = err
+        throw err
+      }
+    }
   }
 
   render() {
@@ -220,40 +263,34 @@ export class Router extends Component {
     if (!deepest) return null
 
     const {children} = deepest.route
-
-    // lazy boundary: function → call it, store promise
     if (typeof children === "function") {
-      deepest.route.children = children()
-      deepest.route.children
-        .then(mod => {
-          deepest.route.children = mod.default
-          this.setState({})
-        })
-        .catch(error => {
-          deepest.route.children = children
-          this.setState({error})
-        })
+      this.#load(segments)
+        .then(() => this.setState({}))
+        .catch(() => this.setState({}))
     }
 
     /** @type {VNode | null} */
     let child = null
 
-    // build vnode tree
-    const loading = typeof children === "function" || children instanceof Promise
+    // accumulate all params from root to leaf
+    const params = {}
+    for (const m of matches) Object.assign(params, m.params)
 
-    for (const {route: r, params} of matches.reverse()) {
-      const props = /** @type {Record<string, any>} */ ({params, query})
+    // build vnode tree
+    const loading = typeof children === "function" || deepest.route.children instanceof Promise
+    for (const {route: r} of matches.reverse()) {
+      const props = /** @type {Record<string, any>} */ ({params: params, query})
 
       if (r === deepest.route && loading) {
         props.loading = true
-        if (this.state.error) props.error = this.state.error
+        if (deepest.route.error) props.error = deepest.route.error
         child = h(r.component, props)
       } else {
         child = child ? h(r.component, props, child) : h(r.component, props)
       }
     }
 
-    return child
+    return h(RouterContext.Provider, {value: this.#ctx}, child)
   }
 }
 

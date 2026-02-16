@@ -2,7 +2,7 @@ import {strict as assert} from "node:assert"
 import {describe, test} from "node:test"
 import {h} from "preact"
 
-import {init, layout, match, navigate, Router, route} from "./router.js"
+import {init, layout, match, navigate, Router, RouterContext, route} from "./router.js"
 
 const c = () => null
 
@@ -35,6 +35,15 @@ function defined(v) {
   void /** @type {import("./router.js").Route<":category/:id", {category: string, id: string}>} */ (multiParam)
   // @ts-expect-error — wrong param shape must be rejected
   void /** @type {import("./router.js").Route<":id", {bogus: string}>} */ (paramRoute)
+
+  // Verify parent option accumulates params at type level
+  const parentRoute = route("posts/:postId", {component: c})
+  const childRoute = route(":commentId", {component: c, parent: () => parentRoute})
+  /** @type {string} */
+  const postId = defined(match([childRoute], ["42"])[0]).params.postId
+  /** @type {string} */
+  const commentId = defined(match([childRoute], ["42"])[0]).params.commentId
+  void postId, void commentId
 }
 
 /** Strip preact's internal __v counter so vnodes can be compared structurally. */
@@ -47,6 +56,12 @@ function strip(/** @type {any} */ vnode) {
 
 function assertVNode(/** @type {any} */ actual, /** @type {any} */ expected) {
   assert.deepEqual(strip(actual), strip(expected))
+}
+
+/** Unwrap RouterContext.Provider from Router.render() output */
+function unwrap(/** @type {any} */ tree) {
+  assert.equal(tree.type, RouterContext.Provider)
+  return tree.props.children
 }
 
 describe("match", () => {
@@ -162,7 +177,7 @@ describe("Router", () => {
     const root = route({component: Home})
 
     const tree = new Router({route: root, url: "/"}).render()
-    assertVNode(tree, h(Home, {params: {}, query: {}}))
+    assertVNode(unwrap(tree), h(Home, {params: {}, query: {}}))
   })
 
   test("renders a layout wrapping a child", () => {
@@ -171,7 +186,7 @@ describe("Router", () => {
     const root = layout({component: Shell}, [route("about", {component: About})])
 
     const tree = new Router({route: root, url: "/about"}).render()
-    assertVNode(tree, h(Shell, {params: {}, query: {}}, h(About, {params: {}, query: {}})))
+    assertVNode(unwrap(tree), h(Shell, {params: {}, query: {}}, h(About, {params: {}, query: {}})))
   })
 
   test("renders nested layouts", () => {
@@ -184,7 +199,7 @@ describe("Router", () => {
 
     const tree = new Router({route: root, url: "/settings/profile"}).render()
     assertVNode(
-      tree,
+      unwrap(tree),
       h(
         Shell,
         {params: {}, query: {}},
@@ -203,7 +218,7 @@ describe("Router", () => {
     ])
 
     const tree = new Router({route: root, url: "/"}).render()
-    assertVNode(tree, h(Shell, {params: {}, query: {}}, h(Home, {params: {}, query: {}})))
+    assertVNode(unwrap(tree), h(Shell, {params: {}, query: {}}, h(Home, {params: {}, query: {}})))
   })
 
   test("returns null when nothing matches", () => {
@@ -217,7 +232,27 @@ describe("Router", () => {
     const root = route(":id", {component: Post})
 
     const tree = new Router({route: root, url: "/42"}).render()
-    assertVNode(tree, h(Post, {params: {id: "42"}, query: {}}))
+    assertVNode(unwrap(tree), h(Post, {params: {id: "42"}, query: {}}))
+  })
+
+  test("passes accumulated params to all nested components", () => {
+    const Shell = (/** @type {any} */ props) => h("div", null, props.children)
+    const Post = (/** @type {any} */ props) => h("section", null, props.children)
+    const Comment = (/** @type {any} */ props) => h("p", null, props.params.commentId)
+    const root = layout({component: Shell}, [
+      route("posts/:postId", {component: Post}, [route(":commentId", {component: Comment})]),
+    ])
+
+    const tree = new Router({route: root, url: "/posts/5/99"}).render()
+    const accumulated = {postId: "5", commentId: "99"}
+    assertVNode(
+      unwrap(tree),
+      h(
+        Shell,
+        {params: accumulated, query: {}},
+        h(Post, {params: accumulated, query: {}}, h(Comment, {params: accumulated, query: {}})),
+      ),
+    )
   })
 
   test("passes query string params as props", () => {
@@ -225,7 +260,7 @@ describe("Router", () => {
     const root = route({component: Home})
 
     const tree = new Router({route: root, url: "/?foo=bar&baz=1"}).render()
-    assertVNode(tree, h(Home, {params: {}, query: {foo: "bar", baz: "1"}}))
+    assertVNode(unwrap(tree), h(Home, {params: {}, query: {foo: "bar", baz: "1"}}))
   })
 
   test("decodes query string keys and values", () => {
@@ -236,7 +271,7 @@ describe("Router", () => {
       route: root,
       url: "/?hello%20world=foo%26bar",
     }).render()
-    assertVNode(tree, h(Home, {params: {}, query: {"hello world": "foo&bar"}}))
+    assertVNode(unwrap(tree), h(Home, {params: {}, query: {"hello world": "foo&bar"}}))
   })
 
   test("passes empty query when no query string", () => {
@@ -244,7 +279,7 @@ describe("Router", () => {
     const root = route({component: Home})
 
     const tree = new Router({route: root, url: "/"}).render()
-    assertVNode(tree, h(Home, {params: {}, query: {}}))
+    assertVNode(unwrap(tree), h(Home, {params: {}, query: {}}))
   })
 
   test("renders loading state for lazy children", () => {
@@ -256,7 +291,7 @@ describe("Router", () => {
 
     const tree = new Router({route: root, url: "/section/page"}).render()
     assertVNode(
-      tree,
+      unwrap(tree),
       h(Shell, {params: {}, query: {}}, h(Section, {params: {}, query: {}, loading: true})),
     )
   })
@@ -285,7 +320,7 @@ describe("Router", () => {
     // After resolve, children is now an array — re-render
     const tree = router.render()
     assertVNode(
-      tree,
+      unwrap(tree),
       h(
         Shell,
         {params: {}, query: {}},
@@ -303,21 +338,82 @@ describe("Router", () => {
     const root = layout({component: c}, [sectionRoute])
 
     const router = new Router({route: root, url: "/section/page"})
-    let stateUpdate = {}
-    router.setState = (/** @type {any} */ s) => {
-      stateUpdate = s
+    let rendered = false
+    router.setState = () => {
+      rendered = true
     }
 
     router.render()
     await new Promise(r => setTimeout(r, 0))
-    assert.deepEqual(stateUpdate, {error: err})
+    assert.ok(rendered)
+    assert.equal(sectionRoute.error, err)
 
-    router.state = stateUpdate
     const tree = router.render()
     assertVNode(
-      tree,
+      unwrap(tree),
       h(c, {params: {}, query: {}}, h(Section, {params: {}, query: {}, loading: true, error: err})),
     )
+  })
+})
+
+describe("preload", () => {
+  test("resolves lazy children by path", async () => {
+    const Page = () => h("p", null, "page")
+    const children = [route("page", {component: Page})]
+    const sectionRoute = route("section", {component: c}, () => Promise.resolve({default: children}))
+    const root = layout({component: c}, [sectionRoute])
+
+    const router = new Router({route: root, url: "/"})
+    await router.preload(["section", "page"])
+    assert.equal(sectionRoute.children, children)
+  })
+
+  test("recursively resolves nested lazy boundaries", async () => {
+    const Page = () => h("p", null, "page")
+    const innerChildren = [route("page", {component: Page})]
+    const outerChildren = [
+      route("sub", {component: c}, () => Promise.resolve({default: innerChildren})),
+    ]
+    const sectionRoute = route("section", {component: c}, () =>
+      Promise.resolve({default: outerChildren}),
+    )
+    const root = layout({component: c}, [sectionRoute])
+
+    const router = new Router({route: root, url: "/"})
+    await router.preload(["section", "sub", "page"])
+    assert.equal(sectionRoute.children, outerChildren)
+    assert.equal(/** @type {any} */ (outerChildren[0]).children, innerChildren)
+  })
+
+  test("no-ops on non-lazy path", async () => {
+    const children = [route("page", {component: c})]
+    const sectionRoute = route("section", {component: c}, children)
+    const root = layout({component: c}, [sectionRoute])
+
+    const router = new Router({route: root, url: "/"})
+    await router.preload(["section", "page"])
+    assert.equal(sectionRoute.children, children)
+  })
+
+  test("restores function on error", async () => {
+    const lazy = () => Promise.reject(new Error("load failed"))
+    const sectionRoute = route("section", {component: c}, lazy)
+    const root = layout({component: c}, [sectionRoute])
+
+    const router = new Router({route: root, url: "/"})
+    await assert.rejects(() => router.preload(["section", "page"]))
+    assert.equal(sectionRoute.children, lazy)
+  })
+
+  test("renders context provider", () => {
+    const Home = () => h("p", null, "home")
+    const root = route({component: Home})
+
+    const router = new Router({route: root, url: "/"})
+    const tree = /** @type {any} */ (router.render())
+    assert.equal(tree.type, RouterContext.Provider)
+    assert.equal(tree.props.value.navigate, navigate)
+    assert.equal(typeof tree.props.value.preload, "function")
   })
 })
 
@@ -352,14 +448,14 @@ describe("navigate", () => {
     router.componentDidMount()
 
     const tree1 = router.render()
-    assertVNode(tree1, h(c, {params: {}, query: {}}, h(Home, {params: {}, query: {}})))
+    assertVNode(unwrap(tree1), h(c, {params: {}, query: {}}, h(Home, {params: {}, query: {}})))
 
     navigate("/about")
     assert.ok(rendered)
     assert.equal(mem.url, "/about")
 
     const tree2 = router.render()
-    assertVNode(tree2, h(c, {params: {}, query: {}}, h(About, {params: {}, query: {}})))
+    assertVNode(unwrap(tree2), h(c, {params: {}, query: {}}, h(About, {params: {}, query: {}})))
 
     router.componentWillUnmount()
   })
