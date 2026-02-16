@@ -9,7 +9,7 @@
     "imports": {
       "preact": "https://esm.sh/preact@10",
       "preact/hooks": "https://esm.sh/preact@10/hooks",
-      "preact-render-to-string": "https://esm.sh/preact-render-to-string@6",
+      "preact-render-to-string": "https://esm.sh/preact-render-to-string@6?deps=preact@10",
       "prouter": "/prouter.js"
     }
   }
@@ -23,7 +23,7 @@
     <p>Loading — installing service worker…</p>
   </div>
   <script type="module">
-    const reg = await navigator.serviceWorker.register("./sw.js")
+    const reg = await navigator.serviceWorker.register("./sw.js", { type: "module" })
 
     // First visit: SW just installed, reload so it can intercept navigation
     if (reg.installing || reg.waiting) {
