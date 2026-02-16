@@ -6,7 +6,7 @@
 // https://github.com/jakelazaroff/prouter
 
 /** @import { AnyComponent, VNode } from "preact"; */
-import {Component, cloneElement, createContext, h} from "preact"
+import {Component, cloneElement, createContext, h, options} from "preact"
 
 /**
  * Extracts param names from a route path string.
@@ -115,11 +115,19 @@ export const RouterContext = createContext(
  * @property {(url: string, replace?: boolean) => void} write
  */
 
+let base = ""
+
 /** @type {Source} */
 export const pathname = {
-  read: () => location.pathname + location.search,
-  write: (url, replace) =>
-    replace ? history.replaceState(null, "", url) : history.pushState(null, "", url)
+  read: () => {
+    const p = location.pathname
+    const path = base && p.startsWith(base) ? p.slice(base.length) || "/" : p
+    return path + location.search
+  },
+  write: (url, replace) => {
+    const full = base + url
+    replace ? history.replaceState(null, "", full) : history.pushState(null, "", full)
+  }
 }
 
 /** @type {Source} */
@@ -154,14 +162,18 @@ function handleClick(e) {
   if (url.origin !== location.origin) return
 
   e.preventDefault()
-  navigate(url.pathname + url.search)
+  let path = url.pathname + url.search
+  if (base && path.startsWith(base)) path = path.slice(base.length) || "/"
+  navigate(path)
 }
 
 /**
  * @param {object} [options]
  * @param {Source} [options.source]
+ * @param {string} [options.base]
  */
 export function init(options) {
+  if (options?.base) base = options.base.replace(/\/$/, "")
   if (options?.source) source = options.source
 
   if (typeof addEventListener !== "undefined") {
@@ -222,19 +234,37 @@ export class NavLink extends Component {
 
 /** @extends {Component<{fallback: any, children: any}>} */
 class Boundary extends Component {
-  __c() {}
-
   /** @param {any} err */
-  componentDidCatch(err) {
+  __c(err) {
     if (!err || typeof err.then !== "function") throw err
-
-    this.setState({p: err})
-    err.then(() => this.setState({p: null})).catch(() => this.setState({p: null}))
+    err.then(() => this.setState({p: null}), () => this.setState({p: null}))
   }
 
   render() {
     return this.state.p ? this.props.fallback : this.props.children
   }
+}
+
+const MODE_HYDRATE = 1 << 5
+const _catchError = options.__e
+options.__e = (err, newVNode, oldVNode) => {
+  if (err && err.then) {
+    let v = newVNode
+    while ((v = v.__)) {
+      if (v.__c instanceof Boundary) {
+        if (newVNode.__e == null) {
+          newVNode.__e = oldVNode.__e
+          newVNode.__k = oldVNode.__k
+        }
+        const c = v.__c
+        if (newVNode.__u & MODE_HYDRATE) return
+        c.setState({p: err})
+        c.__c(err, newVNode)
+        return
+      }
+    }
+  }
+  if (_catchError) _catchError(err, newVNode, oldVNode)
 }
 
 /** @param {{route: Route<any, any>, segments: string[], index: number, params: Record<string, string>, query: Record<string, string>}} props */
@@ -374,6 +404,23 @@ export class Router extends Component {
  * @property {Route<P, Params>} route
  * @property {Params} params
  */
+
+/**
+ * @param {Route<any, any>} root
+ * @param {string} path
+ */
+export async function preload(root, path) {
+  const segments = (path.split("?")[0] ?? "").split("/").filter(Boolean)
+  while (true) {
+    const deepest = match([root], segments).at(-1)
+    if (!deepest) return
+    const {children} = deepest.route
+    if (typeof children !== "function") return
+    deepest.route.children = children()
+    try { deepest.route.children = await deepest.route.children }
+    catch (err) { deepest.route.children = children; deepest.route.error = err; throw err }
+  }
+}
 
 /**
  * @param {Route<any, any>[]} routes

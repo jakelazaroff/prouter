@@ -623,19 +623,11 @@ describe("Suspense", () => {
     assert.equal(l.fallback, Spinner);
   });
 
-  test("SSR streaming: Boundary has __c marker for preact-render-to-string", async () => {
-    // Verify Boundary class has the __c method that preact-render-to-string looks for
-    const { renderToReadableStream } = await import("preact-render-to-string");
+  test("SSR streaming: Boundary has __c marker for preact-render-to-string", () => {
     const Section = (/** @type {any} */ props) => h("section", null, props.children);
     const Spinner = () => h("p", null, "loading...");
-    const Page = () => h("p", null, "page");
-
-    /** @type {(v: any) => void} */
-    let resolve;
-    const promise = new Promise(r => { resolve = r; });
-    const sectionRoute = route("section", { component: Section, fallback: Spinner }, () => {
-      return promise.then(() => [route("page", { component: Page })]);
-    });
+    const lazyChildren = () => Promise.resolve([]);
+    const sectionRoute = route("section", { component: Section, fallback: Spinner }, lazyChildren);
     const root = layout({ component: c }, [sectionRoute]);
 
     const tree = new Router({ route: root, url: "/section/page" }).render();
@@ -645,8 +637,27 @@ describe("Suspense", () => {
     // Verify Boundary has __c (the marker preact-render-to-string checks)
     const boundaryInstance = new boundary.type({});
     assert.equal(typeof boundaryInstance.__c, "function");
+  });
 
-    // @ts-ignore
-    resolve();
+  test("Boundary.__c sets up resolve/reject handlers without setState", () => {
+    const Section = (/** @type {any} */ props) => h("section", null, props.children);
+    const Spinner = () => h("p", null, "loading...");
+    const lazyChildren = () => Promise.resolve([]);
+    const sectionRoute = route("section", { component: Section, fallback: Spinner }, lazyChildren);
+    const root = layout({ component: c }, [sectionRoute]);
+
+    const tree = new Router({ route: root, url: "/section/page" }).render();
+    const section = unwrap(tree).props.children;
+    const boundary = section.props.children;
+
+    // __c alone (called by preact-render-to-string for SSR) should NOT call setState;
+    // only the options.__e hook calls setState (with a hydration flag check).
+    const instance = new boundary.type(boundary.props);
+    instance.state = {};
+    const promise = Promise.resolve();
+    let setStateCalled = false;
+    instance.setState = () => { setStateCalled = true; };
+    instance.__c(promise);
+    assert.equal(setStateCalled, false);
   });
 });

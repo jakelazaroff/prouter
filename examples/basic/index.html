@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>prouter — Basic Example</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "preact": "https://esm.sh/preact@10",
+      "preact/hooks": "https://esm.sh/preact@10/hooks",
+      "preact-render-to-string": "https://esm.sh/preact-render-to-string@6",
+      "prouter": "/prouter.js"
+    }
+  }
+  </script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
+    nav { display: flex; gap: 1rem; margin-bottom: 1rem; border-bottom: 1px solid #ddd; padding-bottom: 0.5rem; }
+    nav a { text-decoration: none; color: #555; }
+    nav a[data-active] { color: #000; font-weight: bold; border-bottom: 2px solid #000; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module">
+    import { h, render } from "preact"
+    import { layout, route, init, navigate, NavLink, Router } from "prouter"
+
+    init({ base: "/examples/basic" })
+
+    function Shell(props) {
+      return h("div", null,
+        h("nav", null,
+          h(NavLink, { exact: true }, h("a", { href: "/" }, "Home")),
+          h(NavLink, null, h("a", { href: "/about" }, "About")),
+          h(NavLink, null, h("a", { href: "/posts/1" }, "Post 1")),
+          h(NavLink, null, h("a", { href: "/posts/2" }, "Post 2"))
+        ),
+        props.children
+      )
+    }
+
+    function Home() {
+      return h("div", null,
+        h("h1", null, "Home"),
+        h("p", null, "Welcome to the basic routing example."),
+        h("button", { onclick: () => navigate("/about") }, "Go to About \u2192")
+      )
+    }
+
+    function About() {
+      return h("div", null,
+        h("h1", null, "About"),
+        h("p", null, "This demonstrates basic routing with prouter.")
+      )
+    }
+
+    function Post(props) {
+      return h("div", null,
+        h("h1", null, "Post " + props.params.id),
+        h("p", null, "Viewing post #" + props.params.id),
+        h("button", { onclick: () => navigate("/") }, "← Back home")
+      )
+    }
+
+    const root = layout({ component: Shell }, [
+      route({ component: Home }),
+      route("about", { component: About }),
+      route("posts/:id", { component: Post })
+    ])
+
+    render(h(Router, { route: root }), document.getElementById("app"))
+  </script>
+</body>
+</html>
