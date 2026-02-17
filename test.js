@@ -335,7 +335,7 @@ describe("Router", () => {
     assertVNode(unwrap(tree), h(Home, { params: {}, query: {} }));
   });
 
-  test("renders Boundary/Resolver for lazy children", () => {
+  test("renders Boundary for lazy children", () => {
     const Shell = (/** @type {any} */ props) => h("div", null, props.children);
     const Section = (/** @type {any} */ props) =>
       h("section", null, props.children);
@@ -350,16 +350,14 @@ describe("Router", () => {
 
     const tree = new Router({ route: root, url: "/section/page" }).render();
     const inner = unwrap(tree);
-    // Shell > Section > Boundary > Resolver
+    // Shell > Section > Boundary
     assert.equal(inner.type, Shell);
     const section = inner.props.children;
     assert.equal(section.type, Section);
     const boundary = section.props.children;
-    // Boundary fallback should be Spinner vnode
+    // Boundary should receive route and fallback
+    assert.equal(boundary.props.route, sectionRoute);
     assert.equal(boundary.props.fallback.type, Spinner);
-    // Boundary child should be Resolver
-    const resolver = boundary.props.children;
-    assert.equal(resolver.props.route, sectionRoute);
   });
 
   test("renders resolved lazy children after load", async () => {
@@ -375,12 +373,16 @@ describe("Router", () => {
 
     const router = new Router({ route: root, url: "/section/page" });
     let rendered = false;
-    router.setState = () => {
-      rendered = true;
-    };
 
-    router.render();
-    // Wait for the promise to resolve
+    // get the Boundary vnode and simulate its render to trigger the load
+    const tree1 = router.render();
+    const boundary = unwrap(tree1).props.children.props.children;
+    const instance = new boundary.type({
+      ...boundary.props,
+      onLoad: () => { rendered = true; }
+    });
+    instance.render();
+
     await new Promise(r => setTimeout(r, 0));
     assert.ok(rendered);
 
@@ -412,11 +414,15 @@ describe("Router", () => {
 
     const router = new Router({ route: root, url: "/section/page" });
     let rendered = false;
-    router.setState = () => {
-      rendered = true;
-    };
 
-    router.render();
+    const tree1 = router.render();
+    const boundary = unwrap(tree1).props.children.props.children;
+    const instance = new boundary.type({
+      ...boundary.props,
+      onLoad: () => { rendered = true; }
+    });
+    instance.render();
+
     await new Promise(r => setTimeout(r, 0));
     assert.ok(rendered);
     assert.equal(sectionRoute.error, err);
@@ -651,7 +657,7 @@ describe("Suspense", () => {
     assert.equal(boundary.props.fallback, null);
   });
 
-  test("Resolver renders resolved child routes after load", async () => {
+  test("renders resolved child routes after load", async () => {
     const Shell = (/** @type {any} */ props) => h("div", null, props.children);
     const Section = (/** @type {any} */ props) =>
       h("section", null, props.children);
@@ -664,15 +670,19 @@ describe("Suspense", () => {
 
     const router = new Router({ route: root, url: "/section/page" });
     let rendered = false;
-    router.setState = () => {
-      rendered = true;
-    };
 
-    router.render();
+    const tree1 = router.render();
+    const boundary = unwrap(tree1).props.children.props.children;
+    const instance = new boundary.type({
+      ...boundary.props,
+      onLoad: () => { rendered = true; }
+    });
+    instance.render();
+
     await new Promise(r => setTimeout(r, 0));
     assert.ok(rendered);
 
-    // After resolve, children is now an array — no Boundary/Resolver
+    // After resolve, children is now an array — no Boundary
     const tree = router.render();
     assertVNode(
       unwrap(tree),

@@ -233,21 +233,33 @@ export class NavLink extends Component {
 }
 
 /**
- * A minimal suspense boundary component.
- * @extends {Component<{fallback: ComponentChildren, children?: ComponentChildren}, {promise: Promise<unknown> | null}>}
+ * @extends {Component<{route: Route, fallback: ComponentChildren, onLoad: () => void}>}
  */
 class Boundary extends Component {
-  /**
-   * __c is the marker preact-render-to-string checks for SSR streaming
-   * @param {any} err
-   */
-  __c(err) {
-    if (typeof err?.then !== "function") throw err
-    err.then(() => this.setState({promise: null})).catch(() => this.setState({promise: null}))
+  /** __c is the marker preact-render-to-string checks for SSR streaming */
+  __c(/** @type {unknown} */ err) {
+    if (typeof (/** @type {Promise<unknown>} */ (err)?.then) !== "function") throw err
   }
 
   render() {
-    return this.state.promise ? this.props.fallback : this.props.children
+    const {route, fallback, onLoad} = this.props
+
+    if (typeof route.children === "function") {
+      const load = route.children
+      route.children = load()
+      route.children
+        .then(resolved => {
+          route.children = resolved
+        })
+        .catch(err => {
+          route.children = load
+          route.error = err
+        })
+        .finally(onLoad)
+      return h(Suspender, {route})
+    }
+
+    return fallback ?? null
   }
 }
 
@@ -273,9 +285,7 @@ const oldCatch = opts.__e
 
 /** @type {InternalOptions["__e"]} */
 opts.__e = (err, next, prev) => {
-  const p = /** @type {Thenable | null} */ (
-    err != null && typeof (/** @type {Thenable} */ (err).then) === "function" ? err : null
-  )
+  const p = err != null && typeof (/** @type {Thenable} */ (err).then) === "function" ? err : null
   if (p) {
     // walk up vnode tree until we find a Boundary
     let v = next
@@ -292,10 +302,8 @@ opts.__e = (err, next, prev) => {
       // if we're hydrating, return
       if ((next.__u ?? 0) & MODE_HYDRATE) return
 
-      // otherwise, show the fallback UI
-      const c = v.__c
-      c.setState({promise: p})
-      p.then(() => c.setState({promise: null})).catch(() => c.setState({promise: null}))
+      // force Boundary to re-render; it will check route.children and show fallback
+      v.__c.forceUpdate()
 
       // skip any other registered hooks
       return
@@ -375,14 +383,11 @@ export class Router extends Component {
         child = h(r.component, {params, query, error: r.error})
       }
 
-      // otherwise, if the route is suspending, load the route and show the fallback
+      // otherwise, if the route is suspending, show the boundary with fallback
       else if (typeof r.children === "function" || r.children instanceof Promise) {
-        this.#load(segments)
-          .then(() => this.setState({}))
-          .catch(() => this.setState({}))
-
         const fallback = r.fallback ? h(r.fallback, {params, query}) : null
-        child = h(r.component, {params, query}, h(Boundary, {fallback}, h(Suspender, {route: r})))
+        const onLoad = () => this.setState({})
+        child = h(r.component, {params, query}, h(Boundary, {route: r, fallback, onLoad}))
       }
 
       // otherwise, just show the route
