@@ -8,6 +8,7 @@
   "main": "prouter.js",
   "scripts": {
     "test": "node --test",
+    "typecheck": "tsc -p jsconfig.json",
     "examples": "npx serve ."
   },
   "peerDependencies": {

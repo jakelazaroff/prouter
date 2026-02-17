@@ -5,7 +5,7 @@
 // prouter v0.1.0
 // https://github.com/jakelazaroff/prouter
 
-/** @import { AnyComponent, VNode } from "preact"; */
+/** @import { AnyComponent, ComponentChildren, VNode } from "preact"; */
 import {Component, cloneElement, createContext, h, options} from "preact"
 
 /**
@@ -27,9 +27,9 @@ import {Component, cloneElement, createContext, h, options} from "preact"
  * @template [Params=ParamsFromPath<P>]
  * @typedef {object} Route
  * @property {P} [path]
- * @property {AnyComponent} component
+ * @property {AnyComponent<RouteProps>} component
  * @property {Route<any, any>[] | LazyChildren | Promise<Route<any, any>[]>} children
- * @property {AnyComponent} [fallback]
+ * @property {AnyComponent<RouteProps>} [fallback]
  * @property {any} [error]
  * @property {Params} [_params] - phantom field for type inference, not used at runtime
  */
@@ -37,8 +37,8 @@ import {Component, cloneElement, createContext, h, options} from "preact"
 /**
  * @template [TParent={}]
  * @typedef {object} RouteOptions
- * @property {AnyComponent} component
- * @property {AnyComponent} [fallback]
+ * @property {AnyComponent<RouteProps>} component
+ * @property {AnyComponent<RouteProps>} [fallback]
  * @property {() => Route<any, TParent>} [parent]
  */
 
@@ -232,48 +232,77 @@ export class NavLink extends Component {
   }
 }
 
-/** @extends {Component<{fallback: any, children: any}>} */
+/**
+ * A minimal suspense boundary component.
+ * @extends {Component<{fallback: ComponentChildren, children?: ComponentChildren}, {promise: Promise<unknown> | null}>}
+ */
 class Boundary extends Component {
+  /**
+   * __c is the marker preact-render-to-string checks for SSR streaming
+   * @param {any} err
+   */
+  __c(err) {
+    if (typeof err?.then !== "function") throw err
+    err.then(() => this.setState({promise: null})).catch(() => this.setState({promise: null}))
+  }
+
   render() {
-    return this.state.p ? this.props.fallback : this.props.children
+    return this.state.promise ? this.props.fallback : this.props.children
   }
 }
 
-// __c is the marker preact-render-to-string checks for SSR streaming.
-if (typeof document === "undefined") {
-  /** @param {any} err */
-  Boundary.prototype.__c = function (err) {
-    if (!err || typeof err.then !== "function") throw err
-    err.then(
-      () => this.setState({p: null}),
-      () => this.setState({p: null})
-    )
-  }
-}
+/**
+ * @typedef {object} InternalVNode
+ * @property {InternalVNode} [__] _parent
+ * @property {Component & {setState: Function}} [__c] _component
+ * @property {Element | Text} [__e] _dom
+ * @property {InternalVNode[]} [__k] _children
+ * @property {number} [__u] _flags
+ */
+
+/**
+ * @typedef {Promise<unknown> & {then: Function, catch: Function}} Thenable
+ *
+ * @typedef {object} InternalOptions
+ * @property {((err: unknown, next: InternalVNode, prev: InternalVNode) => void)} [__e]
+ */
 
 const MODE_HYDRATE = 1 << 5
-const _catchError = options.__e
-options.__e = (err, newVNode, oldVNode) => {
-  if (err && err.then) {
-    let v = newVNode
-    while ((v = v.__)) {
-      if (v.__c instanceof Boundary) {
-        if (newVNode.__e == null) {
-          newVNode.__e = oldVNode.__e
-          newVNode.__k = oldVNode.__k
-        }
-        const c = v.__c
-        if (newVNode.__u & MODE_HYDRATE) return
-        c.setState({p: err})
-        err.then(
-          () => c.setState({p: null}),
-          () => c.setState({p: null})
-        )
-        return
+const opts = /** @type {InternalOptions} */ (/** @type {unknown} */ (options))
+const oldCatch = opts.__e
+
+/** @type {InternalOptions["__e"]} */
+opts.__e = (err, next, prev) => {
+  const p = /** @type {Thenable | null} */ (
+    err != null && typeof (/** @type {Thenable} */ (err).then) === "function" ? err : null
+  )
+  if (p) {
+    // walk up vnode tree until we find a Boundary
+    let v = next
+    while (v.__) {
+      v = v.__
+      if (!(v.__c instanceof Boundary)) continue
+
+      // replace the boundary vnode's DOM element with the suspended vnode's
+      if (next.__e == null) {
+        next.__e = prev.__e
+        next.__k = prev.__k
       }
+
+      // if we're hydrating, return
+      if ((next.__u ?? 0) & MODE_HYDRATE) return
+
+      // otherwise, show the fallback UI
+      const c = v.__c
+      c.setState({promise: p})
+      p.then(() => c.setState({promise: null})).catch(() => c.setState({promise: null}))
+
+      // skip any other registered hooks
+      return
     }
   }
-  if (_catchError) _catchError(err, newVNode, oldVNode)
+
+  oldCatch?.(err, next, prev)
 }
 
 /** @param {{route: Route<any, any>, segments: string[], index: number, params: Record<string, string>, query: Record<string, string>}} props */
@@ -347,59 +376,45 @@ export class Router extends Component {
     const deepest = matches.at(-1)
     if (!deepest) return null
 
-    const {children} = deepest.route
-    if (typeof children === "function") {
+    if (typeof deepest.route.children === "function") {
       this.#load(segments)
         .then(() => this.setState({}))
         .catch(() => this.setState({}))
     }
 
+    // accumulate all params and find in
+    const params = /** @type {Record<string, string>} */ ({})
+    let index = 0
+    for (const m of matches) {
+      Object.assign(params, m.params)
+      index += m.route.path?.split("/").filter(Boolean).length ?? 0
+    }
+
+    /** @type {RouteProps} */
+    const props = {params, query}
+
+    // create array of routes from leaf to root
+    const routes = matches.map(m => m.route).reverse()
+
     /** @type {VNode | null} */
     let child = null
 
-    // accumulate all params from root to leaf
-    const params = {}
-    for (const m of matches) Object.assign(params, m.params)
+    // if the leaf route hasn't loaded, show the loading or error state
+    if (typeof routes[0]?.children === "function" || routes[0]?.children instanceof Promise) {
+      const r = /** @type {Route} */ (routes.shift())
 
-    // compute consumed index (segments consumed by all matches)
-    let consumedIndex = 0
-    for (const m of matches) {
-      consumedIndex += m.route.path?.split("/").filter(Boolean).length ?? 0
+      // if there's an error, render the parent component with the error prop
+      if (r.error) child = h(r.component, {...props, error: r.error})
+      // otherwise, render the parent component with a suspense boundary in place of the children
+      else {
+        const fallback = r.fallback ? h(r.fallback, {params, query}) : null
+        const resolverProps = {route: r, segments, index, params, query}
+        child = h(r.component, props, h(Boundary, {fallback}, h(Resolver, resolverProps)))
+      }
     }
 
-    // build vnode tree
-    const loading = typeof children === "function" || deepest.route.children instanceof Promise
-    for (const {route: r} of matches.reverse()) {
-      const props = /** @type {Record<string, any>} */ ({
-        params: params,
-        query
-      })
-
-      if (r === deepest.route && loading) {
-        if (deepest.route.error) {
-          props.error = deepest.route.error
-          child = h(r.component, props)
-        } else {
-          const fallback = r.fallback ? h(r.fallback, {params, query}) : null
-          child = h(
-            r.component,
-            props,
-            h(
-              Boundary,
-              {fallback},
-              h(Resolver, {
-                route: r,
-                segments,
-                index: consumedIndex,
-                params: {...params},
-                query
-              })
-            )
-          )
-        }
-      } else {
-        child = child ? h(r.component, props, child) : h(r.component, props)
-      }
+    for (const r of routes) {
+      child = child ? h(r.component, props, child) : h(r.component, props)
     }
 
     return h(RouterContext.Provider, {value: this.#ctx}, child)

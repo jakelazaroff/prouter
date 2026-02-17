@@ -49,8 +49,8 @@ function defined(v) {
       multiParam
     )
   );
-  // @ts-expect-error — wrong param shape must be rejected
   void (
+    // @ts-expect-error — wrong param shape must be rejected
     /** @type {import("./prouter.js").Route<":id", {bogus: string}>} */ (
       paramRoute
     )
