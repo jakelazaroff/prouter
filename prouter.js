@@ -324,8 +324,7 @@ function Suspender({route}) {
 export class Router extends Component {
   /** @type {RouterContextValue} */
   #ctx = {
-    preload: path =>
-      this.#load((path.split("?")[0] ?? "").split("/").filter(Boolean)).catch(() => {}),
+    preload: path => preload(this.props.route, path).catch(() => {}),
     navigate
   }
 
@@ -337,28 +336,6 @@ export class Router extends Component {
   /** @override */
   componentWillUnmount() {
     subscribers.delete(this)
-  }
-
-  /** @param {string[]} segments */
-  async #load(segments) {
-    while (true) {
-      // find deepest match
-      const deepest = match([this.props.route], segments).at(-1)
-      if (!deepest) return
-
-      // if deepest child has been loaded, bail out
-      const {children} = deepest.route
-      if (typeof children !== "function") return
-
-      deepest.route.children = children()
-      try {
-        deepest.route.children = await deepest.route.children
-      } catch (err) {
-        deepest.route.children = children
-        deepest.route.error = err
-        throw err
-      }
-    }
   }
 
   render() {
@@ -417,8 +394,10 @@ export async function preload(root, path) {
   while (true) {
     const deepest = match([root], segments).at(-1)
     if (!deepest) return
+
     const {children} = deepest.route
     if (typeof children !== "function") return
+
     deepest.route.children = children()
     try {
       deepest.route.children = await deepest.route.children
