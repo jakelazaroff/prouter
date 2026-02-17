@@ -306,7 +306,7 @@ opts.__e = (err, next, prev) => {
 }
 
 /** @param {{route: Route}} props */
-function Resolver({route}) {
+function Suspender({route}) {
   if (typeof route.children === "function") route.children = route.children()
   if (route.children instanceof Promise) throw route.children
   return null
@@ -360,44 +360,35 @@ export class Router extends Component {
 
     const query = Object.fromEntries(new URLSearchParams(s))
     const matches = match([this.props.route], segments)
+    if (!matches.length) return null
 
-    const deepest = matches.at(-1)
-    if (!deepest) return null
-
-    if (typeof deepest.route.children === "function") {
-      this.#load(segments)
-        .then(() => this.setState({}))
-        .catch(() => this.setState({}))
-    }
-
-    // accumulate all params
     const params = /** @type {Record<string, string>} */ ({})
     for (const m of matches) Object.assign(params, m.params)
 
-    /** @type {RouteProps} */
-    const props = {params, query}
+    // iterate through the matched routes from leaf to root, wrapping each one in its parent
+    let child = /** @type {VNode | null} */ (null)
+    for (let i = matches.length - 1; i >= 0; i--) {
+      const {route: r} = /** @type {RouteMatch} */ (matches[i])
 
-    // create array of routes from leaf to root
-    const routes = matches.map(m => m.route).reverse()
-
-    /** @type {VNode | null} */
-    let child = null
-
-    // if the leaf route hasn't loaded, show the loading or error state
-    if (typeof routes[0]?.children === "function" || routes[0]?.children instanceof Promise) {
-      const r = /** @type {Route} */ (routes.shift())
-
-      // if there's an error, render the parent component with the error prop
-      if (r.error) child = h(r.component, {...props, error: r.error})
-      // otherwise, render the parent component with a suspense boundary in place of the children
-      else {
-        const fallback = r.fallback ? h(r.fallback, {params, query}) : null
-        child = h(r.component, props, h(Boundary, {fallback}, h(Resolver, {route: r})))
+      // if we encountered an error loading the route, show the parent route with the error
+      if (r.error) {
+        child = h(r.component, {params, query, error: r.error})
       }
-    }
 
-    for (const r of routes) {
-      child = child ? h(r.component, props, child) : h(r.component, props)
+      // otherwise, if the route is suspending, load the route and show the fallback
+      else if (typeof r.children === "function" || r.children instanceof Promise) {
+        this.#load(segments)
+          .then(() => this.setState({}))
+          .catch(() => this.setState({}))
+
+        const fallback = r.fallback ? h(r.fallback, {params, query}) : null
+        child = h(r.component, {params, query}, h(Boundary, {fallback}, h(Suspender, {route: r})))
+      }
+
+      // otherwise, just show the route
+      else {
+        child = child ? h(r.component, {params, query}, child) : h(r.component, {params, query})
+      }
     }
 
     return h(RouterContext.Provider, {value: this.#ctx}, child)
