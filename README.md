@@ -1,6 +1,6 @@
 # prouter
 
-A tiny type-safe router for Preact in a single vanilla JavaScript file.
+A tiny, type-safe router for Preact in a single vanilla JavaScript file.
 
 3.1kb unminified and gzipped! 1.4kb minified and gzipped! Zero dependencies other than Preact!
 
@@ -10,7 +10,7 @@ A tiny type-safe router for Preact in a single vanilla JavaScript file.
 
 prouter is not on npm; instead, it's meant to be [vendored](https://htmx.org/essays/vendoring/), or copied directly into your project's source code.
 
-Don't be put off — prouter.js a single ~350 line file, of which only ~160 lines are actually JavaScript code. It doesn't bite!
+Don't be put off — prouter.js a single ~450 line file, of which only ~200 lines are actually JavaScript code. It doesn't bite!
 
 ## Quick start
 

@@ -45,18 +45,17 @@ import {Component, cloneElement, createContext, h, options} from "preact"
 /**
  * @template {string} P
  * @template [TParent={}]
+ *
  * @overload
  * @param {P} path
  * @param {RouteOptions<TParent>} options
  * @param {Route<any, any>[] | LazyChildren} [children]
  * @returns {Route<P, ParamsFromPath<P> & TParent>}
- */
-/**
+ *
  * @overload
  * @param {RouteOptions} options
  * @returns {Route<"", {}>}
- */
-/**
+ *
  * @param {string | RouteOptions} path
  * @param {RouteOptions} [options]
  * @param {Route<any, any>[] | LazyChildren} [children]
@@ -124,17 +123,15 @@ export const pathname = {
     const path = base && p.startsWith(base) ? p.slice(base.length) || "/" : p
     return path + location.search
   },
-  write: (url, replace) => {
-    const full = base + url
-    replace ? history.replaceState(null, "", full) : history.pushState(null, "", full)
-  }
+  write: (url, replace) =>
+    window.navigation.navigate(base + url, {history: replace ? "replace" : "auto"})
 }
 
 /** @type {Source} */
 export const hash = {
   read: () => location.hash.slice(1) || "/",
   write: (url, replace) =>
-    replace ? history.replaceState(null, "", `#${url}`) : history.pushState(null, "", `#${url}`)
+    window.navigation.navigate(`#${url}`, {history: replace ? "replace" : "auto"})
 }
 
 /** @type {Source} */
@@ -147,26 +144,6 @@ function notify() {
   for (const c of subscribers) c.forceUpdate()
 }
 
-/** @param {MouseEvent} e */
-function handleClick(e) {
-  if (e.defaultPrevented) return
-  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
-  if (e.button !== 0) return
-
-  const link = /** @type {HTMLAnchorElement | null} */ (
-    /** @type {HTMLElement} */ (e.target).closest("a[href]")
-  )
-  if (!link) return
-
-  const url = new URL(link.href, location.origin)
-  if (url.origin !== location.origin) return
-
-  e.preventDefault()
-  let path = url.pathname + url.search
-  if (base && path.startsWith(base)) path = path.slice(base.length) || "/"
-  navigate(path)
-}
-
 /**
  * @param {object} [options]
  * @param {Source} [options.source]
@@ -176,10 +153,13 @@ export function init(options) {
   if (options?.base) base = options.base.replace(/\/$/, "")
   if (options?.source) source = options.source
 
-  if (typeof addEventListener !== "undefined") {
-    addEventListener("click", handleClick)
-    addEventListener("auxclick", handleClick)
-    addEventListener("popstate", notify)
+  if (typeof window !== "undefined") {
+    window.navigation?.addEventListener("navigate", event => {
+      if (!event.canIntercept) return
+      if (event.downloadRequest !== null) return
+
+      event.intercept({handler: async () => notify()})
+    })
   }
 }
 
@@ -189,7 +169,6 @@ export function init(options) {
  */
 export function navigate(to, options) {
   source.write(to, options?.replace)
-  notify()
 }
 
 /**
