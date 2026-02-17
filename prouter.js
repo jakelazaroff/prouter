@@ -305,26 +305,14 @@ opts.__e = (err, next, prev) => {
   oldCatch?.(err, next, prev)
 }
 
-/** @param {{route: Route<any, any>, segments: string[], index: number, params: Record<string, string>, query: Record<string, string>}} props */
-function Resolver(props) {
-  const {route: r, segments, index, params, query} = props
-  const {children} = r
-  if (typeof children === "function") {
-    r.children = children()
-    throw r.children
-  }
-  if (children instanceof Promise) throw children
-  const matches = match(children, segments, index)
-  if (!matches.length) return null
-  for (const m of matches) Object.assign(params, m.params)
-  let child = null
-  for (const {route: mr} of [...matches].reverse()) {
-    child = child ? h(mr.component, {params, query}, child) : h(mr.component, {params, query})
-  }
-  return child
+/** @param {{route: Route}} props */
+function Resolver({route}) {
+  if (typeof route.children === "function") route.children = route.children()
+  if (route.children instanceof Promise) throw route.children
+  return null
 }
 
-/** @extends {Component<{route: Route<any, any>, url?: string}>} */
+/** @extends {Component<{route: Route, url?: string}>} */
 export class Router extends Component {
   /** @type {RouterContextValue} */
   #ctx = {
@@ -382,13 +370,9 @@ export class Router extends Component {
         .catch(() => this.setState({}))
     }
 
-    // accumulate all params and find in
+    // accumulate all params
     const params = /** @type {Record<string, string>} */ ({})
-    let index = 0
-    for (const m of matches) {
-      Object.assign(params, m.params)
-      index += m.route.path?.split("/").filter(Boolean).length ?? 0
-    }
+    for (const m of matches) Object.assign(params, m.params)
 
     /** @type {RouteProps} */
     const props = {params, query}
@@ -408,8 +392,7 @@ export class Router extends Component {
       // otherwise, render the parent component with a suspense boundary in place of the children
       else {
         const fallback = r.fallback ? h(r.fallback, {params, query}) : null
-        const resolverProps = {route: r, segments, index, params, query}
-        child = h(r.component, props, h(Boundary, {fallback}, h(Resolver, resolverProps)))
+        child = h(r.component, props, h(Boundary, {fallback}, h(Resolver, {route: r})))
       }
     }
 
