@@ -241,6 +241,11 @@ class Boundary extends Component {
     if (typeof (/** @type {Promise<unknown>} */ (err)?.then) !== "function") throw err
   }
 
+  /** @param {{promise: Promise<unknown>}} props */
+  static Suspender = ({promise}) => {
+    throw promise
+  }
+
   render() {
     const {route, fallback, onLoad} = this.props
 
@@ -256,7 +261,7 @@ class Boundary extends Component {
           route.error = err
         })
         .finally(onLoad)
-      return h(Suspender, {route})
+      return h(Boundary.Suspender, {promise: route.children})
     }
 
     return fallback ?? null
@@ -273,20 +278,22 @@ class Boundary extends Component {
  */
 
 /**
- * @typedef {Promise<unknown> & {then: Function, catch: Function}} Thenable
- *
  * @typedef {object} InternalOptions
- * @property {((err: unknown, next: InternalVNode, prev: InternalVNode) => void)} [__e]
+ * @property {(err: any, next: InternalVNode, prev: InternalVNode, info: any) => void} __e
  */
 
-const MODE_HYDRATE = 1 << 5
-const opts = /** @type {InternalOptions} */ (/** @type {unknown} */ (options))
-const oldCatch = opts.__e
+const MODE_HYDRATE = 1 << 5,
+  opts = /** @type {InternalOptions} */ (options),
+  oldCatch = opts.__e
 
-/** @type {InternalOptions["__e"]} */
-opts.__e = (err, next, prev) => {
-  const p = err != null && typeof (/** @type {Thenable} */ (err).then) === "function" ? err : null
-  if (p) {
+/**
+ * @param {any} err
+ * @param {InternalVNode} next
+ * @param {InternalVNode} prev
+ * @param {any} info
+ */
+opts.__e = (err, next, prev, info) => {
+  if (typeof err?.then === "function") {
     // walk up vnode tree until we find a Boundary
     let v = next
     while (v.__) {
@@ -310,14 +317,7 @@ opts.__e = (err, next, prev) => {
     }
   }
 
-  oldCatch?.(err, next, prev)
-}
-
-/** @param {{route: Route}} props */
-function Suspender({route}) {
-  if (typeof route.children === "function") route.children = route.children()
-  if (route.children instanceof Promise) throw route.children
-  return null
+  oldCatch?.(err, next, prev, info)
 }
 
 /** @extends {Component<{route: Route, url?: string}>} */
