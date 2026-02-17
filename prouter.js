@@ -234,7 +234,7 @@ export class NavLink extends Component {
 
 /**
  * @typedef {object} InternalComponent
- * @property {(err: Promise<any>, vnode: InternalVNode) => void} [__c] _childDidSuspend
+ * @property {(err: any, vnode: InternalVNode) => void} [__c] _childDidSuspend
  * @property {InternalVNode} [__v] _vnode
  */
 
@@ -256,6 +256,10 @@ export class NavLink extends Component {
 const opts = /** @type {InternalOptions} */ (options),
   oldCatch = opts.__e
 
+class SuspendError extends Error {
+  then() {}
+}
+
 /**
  * A minimal Suspense implementation mostly cribbed from https://github.com/JoviDeCroock/preact-suspense
  * @param {any} err
@@ -264,7 +268,7 @@ const opts = /** @type {InternalOptions} */ (options),
  * @param {any} info
  */
 opts.__e = (err, next, prev, info) => {
-  if (typeof err?.then === "function") {
+  if (err instanceof SuspendError) {
     // walk up vnode tree until we find a suspense boundary
     let v = next
     while (v.__) {
@@ -288,7 +292,8 @@ opts.__e = (err, next, prev, info) => {
 const MODE_HYDRATE = 1 << 5
 
 /**
- * A minimal Suspense boundary, also mostly cribbed from preact-suspense, but simplified
+ * A minimal Suspense boundary, also mostly cribbed from preact-suspense,
+ * but idiosyncratic and in to this library rather than for general usage.
  * @extends {Component<{route: Route, fallback: ComponentChildren, onLoad: () => void}>}
  */
 class Boundary extends Component {
@@ -302,9 +307,8 @@ class Boundary extends Component {
     this.forceUpdate()
   }
 
-  /** @param {{promise: Promise<unknown>}} props */
-  static Suspend = ({promise}) => {
-    throw promise
+  static Suspend = () => {
+    throw new SuspendError()
   }
 
   render() {
@@ -322,7 +326,7 @@ class Boundary extends Component {
           route.error = err
         })
         .finally(onLoad)
-      return h(Boundary.Suspend, {promise: route.children})
+      return h(Boundary.Suspend, null)
     }
 
     return fallback ?? null
