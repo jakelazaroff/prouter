@@ -233,16 +233,77 @@ export class NavLink extends Component {
 }
 
 /**
+ * @typedef {object} InternalComponent
+ * @property {(err: Promise<any>, vnode: InternalVNode) => void} [__c] _childDidSuspend
+ * @property {InternalVNode} [__v] _vnode
+ */
+
+/**
+ * @typedef {object} InternalVNode
+ * @property {InternalVNode} [__] _parent
+ * @property {InternalComponent} [__c] _component
+ * @property {Element | Text} [__e] _dom
+ * @property {InternalVNode[]} [__k] _children
+ * @property {number} [__u] _flags
+ * @property {boolean} [__h] _hydrating
+ */
+
+/**
+ * @typedef {object} InternalOptions
+ * @property {(err: any, next: InternalVNode, prev: InternalVNode, info: any) => void} __e
+ */
+
+const opts = /** @type {InternalOptions} */ (options),
+  oldCatch = opts.__e
+
+/**
+ * A minimal Suspense implementation mostly cribbed from https://github.com/JoviDeCroock/preact-suspense
+ * @param {any} err
+ * @param {InternalVNode} next
+ * @param {InternalVNode} prev
+ * @param {any} info
+ */
+opts.__e = (err, next, prev, info) => {
+  if (typeof err?.then === "function") {
+    // walk up vnode tree until we find a suspense boundary
+    let v = next
+    while (v.__) {
+      v = v.__
+      if (!v.__c?.__c) continue
+
+      // preserve DOM references so we don't lose existing content
+      if (next.__e == null) {
+        next.__e = prev.__e
+        next.__k = prev.__k
+      }
+
+      // delegate to the suspense boundary's _childDidSuspend
+      return v.__c.__c(err, next)
+    }
+  }
+
+  oldCatch?.(err, next, prev, info)
+}
+
+const MODE_HYDRATE = 1 << 5
+
+/**
+ * A minimal Suspense boundary, also mostly cribbed from preact-suspense, but simplified
  * @extends {Component<{route: Route, fallback: ComponentChildren, onLoad: () => void}>}
  */
 class Boundary extends Component {
-  /** __c is the marker preact-render-to-string checks for SSR streaming */
-  __c(/** @type {unknown} */ err) {
-    if (typeof (/** @type {Promise<unknown>} */ (err)?.then) !== "function") throw err
+  /**
+   * __c is the marker preact-render-to-string checks for SSR streaming
+   * @param {any} _err
+   * @param {InternalVNode} vnode
+   */
+  __c(_err, vnode) {
+    if ((vnode.__u ?? 0) & MODE_HYDRATE || vnode.__h) return
+    this.forceUpdate()
   }
 
   /** @param {{promise: Promise<unknown>}} props */
-  static Suspender = ({promise}) => {
+  static Suspend = ({promise}) => {
     throw promise
   }
 
@@ -261,63 +322,11 @@ class Boundary extends Component {
           route.error = err
         })
         .finally(onLoad)
-      return h(Boundary.Suspender, {promise: route.children})
+      return h(Boundary.Suspend, {promise: route.children})
     }
 
     return fallback ?? null
   }
-}
-
-/**
- * @typedef {object} InternalVNode
- * @property {InternalVNode} [__] _parent
- * @property {Component & {setState: Function}} [__c] _component
- * @property {Element | Text} [__e] _dom
- * @property {InternalVNode[]} [__k] _children
- * @property {number} [__u] _flags
- */
-
-/**
- * @typedef {object} InternalOptions
- * @property {(err: any, next: InternalVNode, prev: InternalVNode, info: any) => void} __e
- */
-
-const MODE_HYDRATE = 1 << 5,
-  opts = /** @type {InternalOptions} */ (options),
-  oldCatch = opts.__e
-
-/**
- * @param {any} err
- * @param {InternalVNode} next
- * @param {InternalVNode} prev
- * @param {any} info
- */
-opts.__e = (err, next, prev, info) => {
-  if (typeof err?.then === "function") {
-    // walk up vnode tree until we find a Boundary
-    let v = next
-    while (v.__) {
-      v = v.__
-      if (!(v.__c instanceof Boundary)) continue
-
-      // replace the boundary vnode's DOM element with the suspended vnode's
-      if (next.__e == null) {
-        next.__e = prev.__e
-        next.__k = prev.__k
-      }
-
-      // if we're hydrating, return
-      if ((next.__u ?? 0) & MODE_HYDRATE) return
-
-      // force Boundary to re-render; it will check route.children and show fallback
-      v.__c.forceUpdate()
-
-      // skip any other registered hooks
-      return
-    }
-  }
-
-  oldCatch?.(err, next, prev, info)
 }
 
 /** @extends {Component<{route: Route, url?: string}>} */
@@ -344,9 +353,12 @@ export class Router extends Component {
     const segments = pn.split("/").filter(Boolean)
 
     const query = Object.fromEntries(new URLSearchParams(s))
+
+    // find all matching routes
     const matches = match([this.props.route], segments)
     if (!matches.length) return null
 
+    // collect all params
     const params = /** @type {Record<string, string>} */ ({})
     for (const m of matches) Object.assign(params, m.params)
 
@@ -355,20 +367,16 @@ export class Router extends Component {
     for (let i = matches.length - 1; i >= 0; i--) {
       const {route: r} = /** @type {RouteMatch} */ (matches[i])
 
-      // if we encountered an error loading the route, show the parent route with the error
       if (r.error) {
+        // if we encountered an error loading the route, show the parent route with the error
         child = h(r.component, {params, query, error: r.error})
-      }
-
-      // otherwise, if the route is suspending, show the boundary with fallback
-      else if (typeof r.children === "function" || r.children instanceof Promise) {
+      } else if (typeof r.children === "function" || r.children instanceof Promise) {
+        // otherwise, if the route is suspending, show the boundary with fallback
         const fallback = r.fallback ? h(r.fallback, {params, query}) : null
         const onLoad = () => this.setState({})
         child = h(r.component, {params, query}, h(Boundary, {route: r, fallback, onLoad}))
-      }
-
-      // otherwise, just show the route
-      else {
+      } else {
+        // otherwise, just show the route
         child = child ? h(r.component, {params, query}, child) : h(r.component, {params, query})
       }
     }
@@ -386,6 +394,7 @@ export class Router extends Component {
  */
 
 /**
+ * Preload a path, recursively loading any lazily-loaded routes.
  * @param {Route<any, any>} root
  * @param {string} path
  */
