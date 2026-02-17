@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>prouter — Basic Example</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "preact": "https://esm.sh/preact@10",
+          "htm/preact": "https://esm.sh/htm@3/preact?deps=preact@10",
+          "prouter": "/prouter.js"
+        }
+      }
+    </script>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 600px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+      }
+      nav {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1rem;
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 0.5rem;
+      }
+      nav a {
+        text-decoration: none;
+        color: #555;
+      }
+      nav a[data-active] {
+        color: #000;
+        font-weight: bold;
+        border-bottom: 2px solid #000;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { render } from "preact";
+      import { html } from "htm/preact";
+      import { layout, route, init, navigate, NavLink, Router } from "prouter";
+
+      init({ base: "/examples/basic" });
+
+      function Shell({ children }) {
+        return html`
+          <div>
+            <nav>
+              <${NavLink} exact><a href="/">Home</a><//>
+              <${NavLink}><a href="/about">About</a><//>
+              <${NavLink}><a href="/posts/1">Post 1</a><//>
+              <${NavLink}><a href="/posts/2">Post 2</a><//>
+            </nav>
+            ${children}
+          </div>
+        `;
+      }
+
+      function Home() {
+        return html`
+          <div>
+            <h1>Home</h1>
+            <p>Welcome to the basic routing example.</p>
+            <button onclick=${() => navigate("/about")}>Go to About →</button>
+          </div>
+        `;
+      }
+
+      function About() {
+        return html`
+          <div>
+            <h1>About</h1>
+            <p>This demonstrates basic routing with prouter.</p>
+          </div>
+        `;
+      }
+
+      function Post({ params }) {
+        return html`
+          <div>
+            <h1>Post ${params.id}</h1>
+            <p>Viewing post #${params.id}</p>
+            <button onclick=${() => navigate("/")}>← Back home</button>
+          </div>
+        `;
+      }
+
+      const root = layout({ component: Shell }, [
+        route({ component: Home }),
+        route("about", { component: About }),
+        route("posts/:id", { component: Post })
+      ]);
+
+      render(html`<${Router} route=${root} />`, document.getElementById("app"));
+    </script>
+  </body>
+</html>

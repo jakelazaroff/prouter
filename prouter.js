@@ -5,8 +5,8 @@
 // prouter v0.1.0
 // https://github.com/jakelazaroff/prouter
 
-/** @import { AnyComponent, VNode } from "preact"; */
-import {Component, cloneElement, createContext, h} from "preact"
+/** @import { AnyComponent, ComponentChildren, VNode } from "preact"; */
+import {Component, cloneElement, createContext, h, options} from "preact"
 
 /**
  * Extracts param names from a route path string.
@@ -27,8 +27,9 @@ import {Component, cloneElement, createContext, h} from "preact"
  * @template [Params=ParamsFromPath<P>]
  * @typedef {object} Route
  * @property {P} [path]
- * @property {AnyComponent} component
+ * @property {AnyComponent<RouteProps>} component
  * @property {Route<any, any>[] | LazyChildren | Promise<Route<any, any>[]>} children
+ * @property {AnyComponent<RouteProps>} [fallback]
  * @property {any} [error]
  * @property {Params} [_params] - phantom field for type inference, not used at runtime
  */
@@ -36,7 +37,8 @@ import {Component, cloneElement, createContext, h} from "preact"
 /**
  * @template [TParent={}]
  * @typedef {object} RouteOptions
- * @property {AnyComponent} component
+ * @property {AnyComponent<RouteProps>} component
+ * @property {AnyComponent<RouteProps>} [fallback]
  * @property {() => Route<any, TParent>} [parent]
  */
 
@@ -61,11 +63,20 @@ import {Component, cloneElement, createContext, h} from "preact"
  * @returns {Route<any, any>}
  */
 export function route(path, options, children = []) {
+  let p = /** @type {string | undefined} */ (path),
+    opts = /** @type {RouteOptions} */ (options)
+  if (typeof path !== "string") {
+    p = undefined
+    opts = path
+  }
+
+  const {component, fallback} = opts
+
   // "index" routes with no path match all remaining
-  if (typeof path !== "string") return {path: undefined, component: path.component, children: []}
+  if (!p) return {path: undefined, component, fallback, children: []}
 
   // "normal" routes match a path
-  return {path, component: /** @type {RouteOptions} */ (options).component, children}
+  return {path: p, component, fallback, children}
 }
 
 /**
@@ -73,8 +84,8 @@ export function route(path, options, children = []) {
  * @param {Route<any, any>[]} children
  * @returns {Route<"", {}>}
  */
-export function layout(options, children) {
-  return {path: undefined, component: options.component, children}
+export function layout({component, fallback}, children) {
+  return {path: undefined, component, fallback, children}
 }
 
 /**
@@ -95,7 +106,6 @@ export const RouterContext = createContext(
  * @typedef {object} RouteProps
  * @prop {NonNullable<R["_params"]>} params
  * @prop {Record<string, string>} query
- * @prop {boolean} [loading]
  * @prop {any} [error]
  */
 
@@ -105,11 +115,19 @@ export const RouterContext = createContext(
  * @property {(url: string, replace?: boolean) => void} write
  */
 
+let base = ""
+
 /** @type {Source} */
 export const pathname = {
-  read: () => location.pathname + location.search,
-  write: (url, replace) =>
-    replace ? history.replaceState(null, "", url) : history.pushState(null, "", url)
+  read: () => {
+    const p = location.pathname
+    const path = base && p.startsWith(base) ? p.slice(base.length) || "/" : p
+    return path + location.search
+  },
+  write: (url, replace) => {
+    const full = base + url
+    replace ? history.replaceState(null, "", full) : history.pushState(null, "", full)
+  }
 }
 
 /** @type {Source} */
@@ -144,14 +162,18 @@ function handleClick(e) {
   if (url.origin !== location.origin) return
 
   e.preventDefault()
-  navigate(url.pathname + url.search)
+  let path = url.pathname + url.search
+  if (base && path.startsWith(base)) path = path.slice(base.length) || "/"
+  navigate(path)
 }
 
 /**
  * @param {object} [options]
  * @param {Source} [options.source]
+ * @param {string} [options.base]
  */
 export function init(options) {
+  if (options?.base) base = options.base.replace(/\/$/, "")
   if (options?.source) source = options.source
 
   if (typeof addEventListener !== "undefined") {
@@ -210,12 +232,112 @@ export class NavLink extends Component {
   }
 }
 
-/** @extends {Component<{route: Route<any, any>, url?: string}>} */
+/**
+ * @typedef {object} InternalComponent
+ * @property {(err: any, vnode: InternalVNode) => void} [__c] _childDidSuspend
+ * @property {InternalVNode} [__v] _vnode
+ */
+
+/**
+ * @typedef {object} InternalVNode
+ * @property {InternalVNode} [__] _parent
+ * @property {InternalComponent} [__c] _component
+ * @property {Element | Text} [__e] _dom
+ * @property {InternalVNode[]} [__k] _children
+ * @property {number} [__u] _flags
+ * @property {boolean} [__h] _hydrating
+ */
+
+/**
+ * @typedef {object} InternalOptions
+ * @property {(err: any, next: InternalVNode, prev: InternalVNode, info: any) => void} __e
+ */
+
+const opts = /** @type {InternalOptions} */ (options),
+  oldCatch = opts.__e
+
+class SuspendError extends Error {
+  then() {}
+}
+
+/**
+ * A minimal Suspense implementation mostly cribbed from https://github.com/JoviDeCroock/preact-suspense
+ * @param {any} err
+ * @param {InternalVNode} next
+ * @param {InternalVNode} prev
+ * @param {any} info
+ */
+opts.__e = (err, next, prev, info) => {
+  if (err instanceof SuspendError) {
+    // walk up vnode tree until we find a suspense boundary
+    let v = next
+    while (v.__) {
+      v = v.__
+      if (!v.__c?.__c) continue
+
+      // preserve DOM references so we don't lose existing content
+      if (next.__e == null) {
+        next.__e = prev.__e
+        next.__k = prev.__k
+      }
+
+      // delegate to the suspense boundary's _childDidSuspend
+      return v.__c.__c(err, next)
+    }
+  }
+
+  oldCatch?.(err, next, prev, info)
+}
+
+const MODE_HYDRATE = 1 << 5
+
+/**
+ * A minimal Suspense boundary, also mostly cribbed from preact-suspense,
+ * but idiosyncratic and in to this library rather than for general usage.
+ * @extends {Component<{route: Route, fallback: ComponentChildren, onLoad: () => void}>}
+ */
+class Boundary extends Component {
+  /**
+   * __c is the marker preact-render-to-string checks for SSR streaming
+   * @param {any} _err
+   * @param {InternalVNode} vnode
+   */
+  __c(_err, vnode) {
+    if ((vnode.__u ?? 0) & MODE_HYDRATE || vnode.__h) return
+    this.forceUpdate()
+  }
+
+  static Suspend = () => {
+    throw new SuspendError()
+  }
+
+  render() {
+    const {route, fallback, onLoad} = this.props
+
+    if (typeof route.children === "function") {
+      const load = route.children
+      route.children = load()
+      route.children
+        .then(resolved => {
+          route.children = resolved
+        })
+        .catch(err => {
+          route.children = load
+          route.error = err
+        })
+        .finally(onLoad)
+      return h(Boundary.Suspend, null)
+    }
+
+    return fallback ?? null
+  }
+}
+
+/** @extends {Component<{route: Route, url?: string}>} */
 export class Router extends Component {
   /** @type {RouterContextValue} */
   #ctx = {
-    preload: path =>
-      this.#load((path.split("?")[0] ?? "").split("/").filter(Boolean)).catch(() => {}),
+    preload: path => preload(this.props.route, path).catch(() => {}),
     navigate
   }
 
@@ -229,64 +351,37 @@ export class Router extends Component {
     subscribers.delete(this)
   }
 
-  /** @param {string[]} segments */
-  async #load(segments) {
-    while (true) {
-      // find deepest match
-      const deepest = match([this.props.route], segments).at(-1)
-      if (!deepest) return
-
-      // if deepest child has been loaded, bail out
-      const {children} = deepest.route
-      if (typeof children !== "function") return
-
-      deepest.route.children = children()
-      try {
-        deepest.route.children = await deepest.route.children
-      } catch (err) {
-        deepest.route.children = children
-        deepest.route.error = err
-        throw err
-      }
-    }
-  }
-
   render() {
     const url = this.props.url ?? source.read()
     const [pn = "", s] = url.split("?")
     const segments = pn.split("/").filter(Boolean)
 
     const query = Object.fromEntries(new URLSearchParams(s))
+
+    // find all matching routes
     const matches = match([this.props.route], segments)
+    if (!matches.length) return null
 
-    const deepest = matches.at(-1)
-    if (!deepest) return null
-
-    const {children} = deepest.route
-    if (typeof children === "function") {
-      this.#load(segments)
-        .then(() => this.setState({}))
-        .catch(() => this.setState({}))
-    }
-
-    /** @type {VNode | null} */
-    let child = null
-
-    // accumulate all params from root to leaf
-    const params = {}
+    // collect all params
+    const params = /** @type {Record<string, string>} */ ({})
     for (const m of matches) Object.assign(params, m.params)
 
-    // build vnode tree
-    const loading = typeof children === "function" || deepest.route.children instanceof Promise
-    for (const {route: r} of matches.reverse()) {
-      const props = /** @type {Record<string, any>} */ ({params: params, query})
+    // iterate through the matched routes from leaf to root, wrapping each one in its parent
+    let child = /** @type {VNode | null} */ (null)
+    for (let i = matches.length - 1; i >= 0; i--) {
+      const {route: r} = /** @type {RouteMatch} */ (matches[i])
 
-      if (r === deepest.route && loading) {
-        props.loading = true
-        if (deepest.route.error) props.error = deepest.route.error
-        child = h(r.component, props)
+      if (r.error) {
+        // if we encountered an error loading the route, show the parent route with the error
+        child = h(r.component, {params, query, error: r.error})
+      } else if (typeof r.children === "function" || r.children instanceof Promise) {
+        // otherwise, if the route is suspending, show the boundary with fallback
+        const fallback = r.fallback ? h(r.fallback, {params, query}) : null
+        const onLoad = () => this.setState({})
+        child = h(r.component, {params, query}, h(Boundary, {route: r, fallback, onLoad}))
       } else {
-        child = child ? h(r.component, props, child) : h(r.component, props)
+        // otherwise, just show the route
+        child = child ? h(r.component, {params, query}, child) : h(r.component, {params, query})
       }
     }
 
@@ -301,6 +396,31 @@ export class Router extends Component {
  * @property {Route<P, Params>} route
  * @property {Params} params
  */
+
+/**
+ * Preload a path, recursively loading any lazily-loaded routes.
+ * @param {Route<any, any>} root
+ * @param {string} path
+ */
+export async function preload(root, path) {
+  const segments = (path.split("?")[0] ?? "").split("/").filter(Boolean)
+  while (true) {
+    const deepest = match([root], segments).at(-1)
+    if (!deepest) return
+
+    const {children} = deepest.route
+    if (typeof children !== "function") return
+
+    deepest.route.children = children()
+    try {
+      deepest.route.children = await deepest.route.children
+    } catch (err) {
+      deepest.route.children = children
+      deepest.route.error = err
+      throw err
+    }
+  }
+}
 
 /**
  * @param {Route<any, any>[]} routes

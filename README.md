@@ -72,9 +72,7 @@ Pass children as the last argument to `route` or `layout` to build a tree of rou
 
 ```js
 const root = layout({ component: Shell }, [
-  route("posts", { component: Posts }, [
-    route(":id", { component: Post })
-  ])
+  route("posts", { component: Posts }, [route(":id", { component: Post })])
 ]);
 ```
 
@@ -91,7 +89,10 @@ function Post(props) {
   props.query; // Record<string, string>
 }
 
-const commentRoute = route(":commentId", { component: Comment, parent: () => postRoute });
+const commentRoute = route(":commentId", {
+  component: Comment,
+  parent: () => postRoute
+});
 
 /** @param {import("./prouter.js").RouteProps<typeof commentRoute>} props */
 function Comment(props) {

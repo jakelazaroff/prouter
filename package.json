@@ -7,13 +7,16 @@
   "type": "module",
   "main": "prouter.js",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "typecheck": "tsc -p jsconfig.json",
+    "examples": "npx serve ."
   },
   "peerDependencies": {
     "preact": "*"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
+    "preact-render-to-string": "^6.6.5",
     "typescript": "^5.9.3"
   },
   "prettier": {
