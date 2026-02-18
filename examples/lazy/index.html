@@ -47,7 +47,7 @@
     <script type="module">
       import { render } from "preact";
       import { html } from "htm/preact";
-      import { init, layout, NavLink, Router, route } from "prouter";
+      import { init, lazy, layout, NavLink, Router, route } from "prouter";
 
       init({ base: "/examples/lazy" });
 
@@ -56,8 +56,7 @@
           <div>
             <nav>
               <${NavLink} exact><a href="/">Home</a><//>
-              <${NavLink}><a href="/settings/profile">Profile</a><//>
-              <${NavLink}><a href="/settings/billing">Billing</a><//>
+              <${NavLink}><a href="/settings">Settings</a><//>
             </nav>
             ${children}
           </div>
@@ -68,56 +67,52 @@
         return html`
           <div>
             <h1>Home</h1>
-            <p>Click Profile or Billing to load the settings section lazily.</p>
+            <p>Click Settings to load the settings section lazily.</p>
           </div>
         `;
-      }
-
-      function Settings({ children }) {
-        return html`<div>
-          <h1>Settings</h1>
-          ${children}
-        </div>`;
       }
 
       function Spinner() {
         return html`<p class="spinner">Loading…</p>`;
       }
 
-      function lazySettings() {
-        return new Promise(resolve =>
+      const Settings = lazy(() =>
+        new Promise(resolve =>
           setTimeout(
             () =>
-              resolve([
-                route("profile", {
-                  component: () => html`
-                    <div>
-                      <h2>Profile</h2>
-                      <p>Edit your profile settings here.</p>
-                    </div>
-                  `
-                }),
-                route("billing", {
-                  component: () => html`
-                    <div>
-                      <h2>Billing</h2>
-                      <p>Manage your billing and payment methods.</p>
-                    </div>
-                  `
-                })
-              ]),
+              resolve(({ children }) => html`<div>
+                <h1>Settings</h1>
+                <nav>
+                  <${NavLink}><a href="/settings/profile">Profile</a><//>
+                  <${NavLink}><a href="/settings/billing">Billing</a><//>
+                </nav>
+                ${children}
+              </div>`),
             1500
           )
-        );
-      }
+        )
+      );
 
       const root = layout({ component: Shell }, [
         route({ component: Home }),
-        route(
-          "settings",
-          { component: Settings, fallback: Spinner },
-          lazySettings
-        )
+        route("settings", { component: Settings, fallback: Spinner }, [
+          route("profile", {
+            component: () => html`
+              <div>
+                <h2>Profile</h2>
+                <p>Edit your profile settings here.</p>
+              </div>
+            `
+          }),
+          route("billing", {
+            component: () => html`
+              <div>
+                <h2>Billing</h2>
+                <p>Manage your billing and payment methods.</p>
+              </div>
+            `
+          })
+        ])
       ]);
 
       render(html`<${Router} route=${root} />`, document.getElementById("app"));

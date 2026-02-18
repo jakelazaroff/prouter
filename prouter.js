@@ -20,17 +20,18 @@ import {Component, cloneElement, createContext, h, options} from "preact"
  *     : {}} ParamsFromPath
  */
 
-/** @typedef {() => Promise<Route<any, any>[]>} LazyChildren */
+const LAZY = Symbol("lazy")
+
+/** @typedef {{ [LAZY]: true, load: () => Promise<AnyComponent<RouteProps>>, promise?: Promise<AnyComponent<RouteProps>> }} LazyComponent */
 
 /**
  * @template {string} [P=string]
  * @template [Params=ParamsFromPath<P>]
  * @typedef {object} Route
  * @property {P} [path]
- * @property {AnyComponent<RouteProps>} component
- * @property {Route<any, any>[] | LazyChildren | Promise<Route<any, any>[]>} children
+ * @property {AnyComponent<RouteProps> | LazyComponent} component
+ * @property {Route<any, any>[]} children
  * @property {AnyComponent<RouteProps>} [fallback]
- * @property {any} [error]
  * @property {Params} [_params] - phantom field for type inference, not used at runtime
  */
 
@@ -49,7 +50,7 @@ import {Component, cloneElement, createContext, h, options} from "preact"
  * @overload
  * @param {P} path
  * @param {RouteOptions<TParent>} options
- * @param {Route<any, any>[] | LazyChildren} [children]
+ * @param {Route<any, any>[]} [children]
  * @returns {Route<P, ParamsFromPath<P> & TParent>}
  *
  * @overload
@@ -58,7 +59,7 @@ import {Component, cloneElement, createContext, h, options} from "preact"
  *
  * @param {string | RouteOptions} path
  * @param {RouteOptions} [options]
- * @param {Route<any, any>[] | LazyChildren} [children]
+ * @param {Route<any, any>[]} [children]
  * @returns {Route<any, any>}
  */
 export function route(path, options, children = []) {
@@ -88,6 +89,14 @@ export function layout({component, fallback}, children) {
 }
 
 /**
+ * @param {() => Promise<AnyComponent<RouteProps>>} load
+ * @returns {LazyComponent}
+ */
+export function lazy(load) {
+  return {[LAZY]: true, load}
+}
+
+/**
  * @typedef {object} RouterContextValue
  * @property {(path: string) => Promise<void>} preload
  * @property {(to: string, options?: {replace?: boolean}) => void} navigate
@@ -105,7 +114,6 @@ export const RouterContext = createContext(
  * @typedef {object} RouteProps
  * @prop {NonNullable<R["_params"]>} params
  * @prop {Record<string, string>} query
- * @prop {any} [error]
  */
 
 /**
@@ -271,9 +279,8 @@ opts.__e = (err, next, prev, info) => {
 const MODE_HYDRATE = 1 << 5
 
 /**
- * A minimal Suspense boundary, also mostly cribbed from preact-suspense,
- * but idiosyncratic and in to this library rather than for general usage.
- * @extends {Component<{route: Route, fallback: ComponentChildren, onLoad: () => void}>}
+ * A minimal Suspense boundary for lazy components.
+ * @extends {Component<{fallback: ComponentChildren}>}
  */
 class Boundary extends Component {
   /**
@@ -286,28 +293,16 @@ class Boundary extends Component {
     this.forceUpdate()
   }
 
+  #suspended = false
   static Suspend = () => {
     throw new SuspendError()
   }
 
   render() {
-    const {route, fallback, onLoad} = this.props
+    const {fallback} = this.props
+    if (this.#suspended) return h(Boundary.Suspend, null)
 
-    if (typeof route.children === "function") {
-      const load = route.children
-      route.children = load()
-      route.children
-        .then(resolved => {
-          route.children = resolved
-        })
-        .catch(err => {
-          route.children = load
-          route.error = err
-        })
-        .finally(onLoad)
-      return h(Boundary.Suspend, null)
-    }
-
+    this.#suspended = true
     return fallback ?? null
   }
 }
@@ -345,21 +340,30 @@ export class Router extends Component {
     const params = /** @type {Record<string, string>} */ ({})
     for (const m of matches) Object.assign(params, m.params)
 
+    // kick off all lazy component loads in parallel
+    for (const {route: r} of matches) {
+      const comp = r.component
+      if (!(LAZY in comp)) continue
+      if (!comp.promise) {
+        comp.promise = comp.load()
+        comp.promise
+          .then(resolved => {
+            r.component = resolved
+          })
+          .finally(() => this.setState({}))
+      }
+    }
+
     // iterate through the matched routes from leaf to root, wrapping each one in its parent
     let child = /** @type {VNode | null} */ (null)
     for (let i = matches.length - 1; i >= 0; i--) {
       const {route: r} = /** @type {RouteMatch} */ (matches[i])
 
-      if (r.error) {
-        // if we encountered an error loading the route, show the parent route with the error
-        child = h(r.component, {params, query, error: r.error})
-      } else if (typeof r.children === "function" || r.children instanceof Promise) {
-        // otherwise, if the route is suspending, show the boundary with fallback
+      if (LAZY in r.component) {
+        // component still loading — show boundary with fallback
         const fallback = r.fallback ? h(r.fallback, {params, query}) : null
-        const onLoad = () => this.setState({})
-        child = h(r.component, {params, query}, h(Boundary, {route: r, fallback, onLoad}))
+        child = h(Boundary, {fallback})
       } else {
-        // otherwise, just show the route
         child = child ? h(r.component, {params, query}, child) : h(r.component, {params, query})
       }
     }
@@ -383,22 +387,15 @@ export class Router extends Component {
  */
 export async function preload(root, path) {
   const segments = (path.split("?")[0] ?? "").split("/").filter(Boolean)
-  while (true) {
-    const deepest = match([root], segments).at(-1)
-    if (!deepest) return
+  const promises = match([root], segments)
+    .filter(m => LAZY in m.route.component)
+    .map(async m => {
+      const lz = /** @type {LazyComponent} */ (m.route.component)
+      if (!lz.promise) lz.promise = lz.load()
+      m.route.component = await lz.promise
+    })
 
-    const {children} = deepest.route
-    if (typeof children !== "function") return
-
-    deepest.route.children = children()
-    try {
-      deepest.route.children = await deepest.route.children
-    } catch (err) {
-      deepest.route.children = children
-      deepest.route.error = err
-      throw err
-    }
-  }
+  await Promise.all(promises)
 }
 
 /**
@@ -432,10 +429,7 @@ export function match(routes, segments, index = 0) {
 
     const next = index + pathSegments.length
 
-    // if children are lazy (function or promise), return partial match
-    if (typeof r.children === "function" || r.children instanceof Promise) {
-      if (next <= segments.length) return [{route: r, params}]
-    } else if (r.children.length) {
+    if (r.children.length) {
       const child = match(r.children, segments, next)
       if (child.length) return [{route: r, params}].concat(child)
     }

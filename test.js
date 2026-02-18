@@ -4,9 +4,11 @@ import { h } from "preact";
 
 import {
   init,
+  lazy,
   layout,
   match,
   navigate,
+  preload,
   Router,
   RouterContext,
   route
@@ -88,6 +90,17 @@ function unwrap(/** @type {any} */ tree) {
   return tree.props.children;
 }
 
+describe("lazy", () => {
+  test("returns a lazy component descriptor", () => {
+    const load = () => Promise.resolve(c);
+    const lz = lazy(load);
+    const sym = Object.getOwnPropertySymbols(lz).find(s => s.description === "lazy");
+    assert.ok(sym, "should have a Symbol('lazy') key");
+    assert.equal(lz[sym], true);
+    assert.equal(lz.load, load);
+  });
+});
+
 describe("match", () => {
   test("matches a root index route", () => {
     const index = route({ component: c });
@@ -155,29 +168,17 @@ describe("match", () => {
     ]);
   });
 
-  test("stops at lazy boundary (function children)", () => {
-    const lazyChildren = () => Promise.resolve([]);
-    const parent = route("section", { component: c }, lazyChildren);
+  test("matches through routes with lazy components", () => {
+    const lazyComp = lazy(() => Promise.resolve(c));
+    const child = route("page", { component: c });
+    const parent = route("section", { component: lazyComp }, [child]);
     const root = layout({ component: c }, [parent]);
 
     const result = match([root], ["section", "page"]);
     assert.deepEqual(result, [
       { route: root, params: {} },
-      { route: parent, params: {} }
-    ]);
-  });
-
-  test("stops at in-progress boundary (promise children)", () => {
-    const parent = route("section", { component: c });
-    // Simulate in-progress loading by assigning a promise
-    /** @type {any} */
-    parent.children = Promise.resolve([]);
-    const root = layout({ component: c }, [parent]);
-
-    const result = match([root], ["section", "page"]);
-    assert.deepEqual(result, [
-      { route: root, params: {} },
-      { route: parent, params: {} }
+      { route: parent, params: {} },
+      { route: child, params: {} }
     ]);
   });
 
@@ -335,58 +336,70 @@ describe("Router", () => {
     assertVNode(unwrap(tree), h(Home, { params: {}, query: {} }));
   });
 
-  test("renders Boundary for lazy children", () => {
+  test("renders Boundary for lazy component", () => {
     const Shell = (/** @type {any} */ props) => h("div", null, props.children);
-    const Section = (/** @type {any} */ props) =>
-      h("section", null, props.children);
     const Spinner = () => h("p", null, "loading...");
-    const lazyChildren = () => Promise.resolve([]);
+    const lazyComp = lazy(() => Promise.resolve(c));
     const sectionRoute = route(
       "section",
-      { component: Section, fallback: Spinner },
-      lazyChildren
+      { component: lazyComp, fallback: Spinner }
     );
     const root = layout({ component: Shell }, [sectionRoute]);
 
-    const tree = new Router({ route: root, url: "/section/page" }).render();
+    const tree = new Router({ route: root, url: "/section" }).render();
     const inner = unwrap(tree);
-    // Shell > Section > Boundary
+    // Shell > Boundary (because component is lazy)
     assert.equal(inner.type, Shell);
-    const section = inner.props.children;
-    assert.equal(section.type, Section);
-    const boundary = section.props.children;
-    // Boundary should receive route and fallback
-    assert.equal(boundary.props.route, sectionRoute);
+    const boundary = inner.props.children;
     assert.equal(boundary.props.fallback.type, Spinner);
   });
 
-  test("renders resolved lazy children after load", async () => {
+  test("renders resolved lazy component after load", async () => {
     const Shell = (/** @type {any} */ props) => h("div", null, props.children);
-    const Section = (/** @type {any} */ props) =>
-      h("section", null, props.children);
     const Page = () => h("p", null, "page");
+    const lazyPage = lazy(() => Promise.resolve(Page));
+    const pageRoute = route("page", { component: lazyPage });
+    const root = layout({ component: Shell }, [pageRoute]);
 
-    const sectionRoute = route("section", { component: Section }, () =>
-      Promise.resolve([route("page", { component: Page })])
-    );
-    const root = layout({ component: Shell }, [sectionRoute]);
+    const router = new Router({ route: root, url: "/page" });
 
-    const router = new Router({ route: root, url: "/section/page" });
-    let rendered = false;
-
-    // get the Boundary vnode and simulate its render to trigger the load
-    const tree1 = router.render();
-    const boundary = unwrap(tree1).props.children.props.children;
-    const instance = new boundary.type({
-      ...boundary.props,
-      onLoad: () => { rendered = true; }
-    });
-    instance.render();
+    // First render kicks off the load
+    router.render();
 
     await new Promise(r => setTimeout(r, 0));
-    assert.ok(rendered);
 
-    // After resolve, children is now an array — re-render
+    // After resolve, component is replaced — re-render shows the component
+    const tree = router.render();
+    assertVNode(
+      unwrap(tree),
+      h(
+        Shell,
+        { params: {}, query: {} },
+        h(Page, { params: {}, query: {} })
+      )
+    );
+  });
+
+  test("kicks off multiple lazy loads in parallel", async () => {
+    const Shell = (/** @type {any} */ props) => h("div", null, props.children);
+    const Settings = (/** @type {any} */ props) =>
+      h("section", null, props.children);
+    const Profile = () => h("p", null, "profile");
+
+    const lazySettings = lazy(() => Promise.resolve(Settings));
+    const lazyProfile = lazy(() => Promise.resolve(Profile));
+
+    const root = layout({ component: Shell }, [
+      route("settings", { component: lazySettings }, [
+        route("profile", { component: lazyProfile })
+      ])
+    ]);
+
+    const router = new Router({ route: root, url: "/settings/profile" });
+    router.render();
+
+    await new Promise(r => setTimeout(r, 0));
+
     const tree = router.render();
     assertVNode(
       unwrap(tree),
@@ -394,46 +407,10 @@ describe("Router", () => {
         Shell,
         { params: {}, query: {} },
         h(
-          Section,
+          Settings,
           { params: {}, query: {} },
-          h(Page, { params: {}, query: {} })
+          h(Profile, { params: {}, query: {} })
         )
-      )
-    );
-  });
-
-  test("renders error state for failed lazy children", async () => {
-    const Section = (/** @type {any} */ props) =>
-      props.error ? h("p", null, "error") : h("div", null, props.children);
-    const err = new Error("load failed");
-
-    const sectionRoute = route("section", { component: Section }, () =>
-      Promise.reject(err)
-    );
-    const root = layout({ component: c }, [sectionRoute]);
-
-    const router = new Router({ route: root, url: "/section/page" });
-    let rendered = false;
-
-    const tree1 = router.render();
-    const boundary = unwrap(tree1).props.children.props.children;
-    const instance = new boundary.type({
-      ...boundary.props,
-      onLoad: () => { rendered = true; }
-    });
-    instance.render();
-
-    await new Promise(r => setTimeout(r, 0));
-    assert.ok(rendered);
-    assert.equal(sectionRoute.error, err);
-
-    const tree = router.render();
-    assertVNode(
-      unwrap(tree),
-      h(
-        c,
-        { params: {}, query: {} },
-        h(Section, { params: {}, query: {}, error: err })
       )
     );
   });
@@ -445,34 +422,30 @@ describe("preload", () => {
     return /** @type {any} */ (router.render()).props.value;
   }
 
-  test("resolves lazy children by path", async () => {
+  test("resolves lazy components by path", async () => {
     const Page = () => h("p", null, "page");
-    const children = [route("page", { component: Page })];
-    const sectionRoute = route("section", { component: c }, () =>
-      Promise.resolve(children)
-    );
-    const root = layout({ component: c }, [sectionRoute]);
+    const lazyPage = lazy(() => Promise.resolve(Page));
+    const pageRoute = route("page", { component: lazyPage });
+    const root = layout({ component: c }, [pageRoute]);
 
-    const router = new Router({ route: root, url: "/" });
-    await ctx(router).preload("/section/page");
-    assert.equal(sectionRoute.children, children);
+    await preload(root, "/page");
+    assert.equal(pageRoute.component, Page);
   });
 
-  test("recursively resolves nested lazy boundaries", async () => {
+  test("resolves multiple lazy components in parallel", async () => {
+    const Section = () => h("section", null);
     const Page = () => h("p", null, "page");
-    const innerChildren = [route("page", { component: Page })];
-    const outerChildren = [
-      route("sub", { component: c }, () => Promise.resolve(innerChildren))
-    ];
-    const sectionRoute = route("section", { component: c }, () =>
-      Promise.resolve(outerChildren)
-    );
+    const lazySection = lazy(() => Promise.resolve(Section));
+    const lazyPage = lazy(() => Promise.resolve(Page));
+
+    const sectionRoute = route("section", { component: lazySection }, [
+      route("page", { component: lazyPage })
+    ]);
     const root = layout({ component: c }, [sectionRoute]);
 
-    const router = new Router({ route: root, url: "/" });
-    await ctx(router).preload("/section/sub/page");
-    assert.equal(sectionRoute.children, outerChildren);
-    assert.equal(/** @type {any} */ (outerChildren[0]).children, innerChildren);
+    await preload(root, "/section/page");
+    assert.equal(sectionRoute.component, Section);
+    assert.equal(/** @type {any} */ (sectionRoute.children[0]).component, Page);
   });
 
   test("no-ops on non-lazy path", async () => {
@@ -480,19 +453,8 @@ describe("preload", () => {
     const sectionRoute = route("section", { component: c }, children);
     const root = layout({ component: c }, [sectionRoute]);
 
-    const router = new Router({ route: root, url: "/" });
-    await ctx(router).preload("/section/page");
-    assert.equal(sectionRoute.children, children);
-  });
-
-  test("swallows errors and restores function", async () => {
-    const lazy = () => Promise.reject(new Error("load failed"));
-    const sectionRoute = route("section", { component: c }, lazy);
-    const root = layout({ component: c }, [sectionRoute]);
-
-    const router = new Router({ route: root, url: "/" });
-    await ctx(router).preload("/section/page");
-    assert.equal(sectionRoute.children, lazy);
+    await preload(root, "/section/page");
+    assert.equal(sectionRoute.component, c);
   });
 
   test("renders context provider", () => {
@@ -616,13 +578,12 @@ describe("navigate", () => {
 });
 
 describe("Suspense", () => {
-  test("no Boundary rendered when route is pre-resolved (hydration case)", () => {
+  test("no Boundary rendered when component is pre-resolved", () => {
     const Shell = (/** @type {any} */ props) => h("div", null, props.children);
     const Section = (/** @type {any} */ props) =>
       h("section", null, props.children);
     const Page = () => h("p", null, "page");
 
-    // Pre-resolved: children is already an array (as if preload() was called)
     const root = layout({ component: Shell }, [
       route("section", { component: Section }, [
         route("page", { component: Page })
@@ -645,55 +606,35 @@ describe("Suspense", () => {
   });
 
   test("Boundary without fallback renders null while loading", () => {
-    const Section = (/** @type {any} */ props) =>
-      h("section", null, props.children);
-    const lazyChildren = () => Promise.resolve([]);
-    const sectionRoute = route("section", { component: Section }, lazyChildren);
+    const lazyComp = lazy(() => Promise.resolve(c));
+    const sectionRoute = route("section", { component: lazyComp });
     const root = layout({ component: c }, [sectionRoute]);
 
-    const tree = new Router({ route: root, url: "/section/page" }).render();
-    const section = unwrap(tree).props.children;
-    const boundary = section.props.children;
+    const tree = new Router({ route: root, url: "/section" }).render();
+    const boundary = unwrap(tree).props.children;
     assert.equal(boundary.props.fallback, null);
   });
 
-  test("renders resolved child routes after load", async () => {
+  test("renders resolved component after load", async () => {
     const Shell = (/** @type {any} */ props) => h("div", null, props.children);
-    const Section = (/** @type {any} */ props) =>
-      h("section", null, props.children);
     const Page = () => h("p", null, "page");
+    const lazyPage = lazy(() => Promise.resolve(Page));
 
-    const sectionRoute = route("section", { component: Section }, () =>
-      Promise.resolve([route("page", { component: Page })])
-    );
-    const root = layout({ component: Shell }, [sectionRoute]);
+    const pageRoute = route("page", { component: lazyPage });
+    const root = layout({ component: Shell }, [pageRoute]);
 
-    const router = new Router({ route: root, url: "/section/page" });
-    let rendered = false;
-
-    const tree1 = router.render();
-    const boundary = unwrap(tree1).props.children.props.children;
-    const instance = new boundary.type({
-      ...boundary.props,
-      onLoad: () => { rendered = true; }
-    });
-    instance.render();
+    const router = new Router({ route: root, url: "/page" });
+    router.render();
 
     await new Promise(r => setTimeout(r, 0));
-    assert.ok(rendered);
 
-    // After resolve, children is now an array — no Boundary
     const tree = router.render();
     assertVNode(
       unwrap(tree),
       h(
         Shell,
         { params: {}, query: {} },
-        h(
-          Section,
-          { params: {}, query: {} },
-          h(Page, { params: {}, query: {} })
-        )
+        h(Page, { params: {}, query: {} })
       )
     );
   });
@@ -711,52 +652,19 @@ describe("Suspense", () => {
   });
 
   test("SSR streaming: Boundary has __c marker for preact-render-to-string", () => {
-    const Section = (/** @type {any} */ props) =>
-      h("section", null, props.children);
+    const lazyComp = lazy(() => Promise.resolve(c));
     const Spinner = () => h("p", null, "loading...");
-    const lazyChildren = () => Promise.resolve([]);
     const sectionRoute = route(
       "section",
-      { component: Section, fallback: Spinner },
-      lazyChildren
+      { component: lazyComp, fallback: Spinner }
     );
     const root = layout({ component: c }, [sectionRoute]);
 
-    const tree = new Router({ route: root, url: "/section/page" }).render();
-    const section = unwrap(tree).props.children;
-    const boundary = section.props.children;
+    const tree = new Router({ route: root, url: "/section" }).render();
+    const boundary = unwrap(tree).props.children;
 
     // Verify Boundary has __c (the marker preact-render-to-string checks)
     const boundaryInstance = new boundary.type({});
     assert.equal(typeof boundaryInstance.__c, "function");
-  });
-
-  test("Boundary.__c sets up resolve/reject handlers without setState", () => {
-    const Section = (/** @type {any} */ props) =>
-      h("section", null, props.children);
-    const Spinner = () => h("p", null, "loading...");
-    const lazyChildren = () => Promise.resolve([]);
-    const sectionRoute = route(
-      "section",
-      { component: Section, fallback: Spinner },
-      lazyChildren
-    );
-    const root = layout({ component: c }, [sectionRoute]);
-
-    const tree = new Router({ route: root, url: "/section/page" }).render();
-    const section = unwrap(tree).props.children;
-    const boundary = section.props.children;
-
-    // __c alone (called by preact-render-to-string for SSR) should NOT call setState;
-    // only the options.__e hook calls setState (with a hydration flag check).
-    const instance = new boundary.type(boundary.props);
-    instance.state = {};
-    const promise = Promise.resolve();
-    let setStateCalled = false;
-    instance.setState = () => {
-      setStateCalled = true;
-    };
-    instance.__c(promise);
-    assert.equal(setStateCalled, false);
   });
 });
