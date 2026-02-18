@@ -47,7 +47,7 @@
     <script type="module">
       import { render } from "preact";
       import { html } from "htm/preact";
-      import { init, lazy, layout, NavLink, Router, route } from "prouter";
+      import { index, init, lazy, layout, NavLink, Router, route } from "prouter";
 
       init({ base: "/examples/lazy" });
 
@@ -94,7 +94,7 @@
       );
 
       const root = layout({ component: Shell }, [
-        route({ component: Home }),
+        index({ component: Home }),
         route("settings", { component: Settings, fallback: Spinner }, [
           route("profile", {
             component: () => html`
@@ -103,7 +103,7 @@
                 <p>Edit your profile settings here.</p>
               </div>
             `
-          }),
+          }, []),
           route("billing", {
             component: () => html`
               <div>
@@ -111,7 +111,7 @@
                 <p>Manage your billing and payment methods.</p>
               </div>
             `
-          })
+          }, [])
         ])
       ]);
 

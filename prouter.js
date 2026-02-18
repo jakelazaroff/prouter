@@ -46,46 +46,32 @@ const LAZY = Symbol("lazy")
 /**
  * @template {string} P
  * @template [TParent={}]
- *
- * @overload
  * @param {P} path
  * @param {RouteOptions<TParent>} options
- * @param {Route<any, any>[]} [children]
+ * @param {Route<any, any>[]} children
  * @returns {Route<P, ParamsFromPath<P> & TParent>}
- *
- * @overload
- * @param {RouteOptions} options
- * @returns {Route<"", {}>}
- *
- * @param {string | RouteOptions} path
- * @param {RouteOptions} [options]
- * @param {Route<any, any>[]} [children]
- * @returns {Route<any, any>}
  */
-export function route(path, options, children = []) {
-  let p = /** @type {string | undefined} */ (path),
-    opts = /** @type {RouteOptions} */ (options)
-  if (typeof path !== "string") {
-    p = undefined
-    opts = path
-  }
-
-  const {component, fallback} = opts
-
-  // "index" routes with no path match all remaining
-  if (!p) return {path: undefined, component, fallback, children: []}
-
-  // "normal" routes match a path
-  return {path: p, component, fallback, children}
+export function route(path, {component, fallback}, children) {
+  return {path, component, fallback, children}
 }
 
 /**
- * @param {RouteOptions} options
- * @param {Route<any, any>[]} children
- * @returns {Route<"", {}>}
+ * @template [TParent={}]
+ * @param {RouteOptions<TParent>} options
+ * @returns {Route<"", TParent>}
  */
-export function layout({component, fallback}, children) {
-  return {path: undefined, component, fallback, children}
+export function index(options) {
+  return route("", options, [])
+}
+
+/**
+ * @template [TParent={}]
+ * @param {RouteOptions<TParent>} options
+ * @param {Route<any, any>[]} children
+ * @returns {Route<"", TParent>}
+ */
+export function layout(options, children) {
+  return route("", options, children)
 }
 
 /**
@@ -177,6 +163,7 @@ export function init(options) {
  */
 export function navigate(to, options) {
   source.write(to, options?.replace)
+  notify()
 }
 
 /**

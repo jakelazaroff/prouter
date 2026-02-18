@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import { h } from "preact";
 
 import {
+  index,
   init,
   lazy,
   layout,
@@ -23,19 +24,19 @@ function defined(v) {
   return v;
 }
 {
-  const paramRoute = route(":id", { component: c });
+  const paramRoute = route(":id", { component: c }, []);
   /** @type {string} */
   const id = defined(match([paramRoute], ["42"])[0]).params.id;
   void id;
 
-  const multiParam = route(":category/:id", { component: c });
+  const multiParam = route(":category/:id", { component: c }, []);
   /** @type {string} */
   const cat = defined(match([multiParam], ["a", "b"])[0]).params.category;
   /** @type {string} */
   const mid = defined(match([multiParam], ["a", "b"])[0]).params.id;
   (void cat, void mid);
 
-  const noParams = route("about", { component: c });
+  const noParams = route("about", { component: c }, []);
   /** @type {{}} */
   const empty = defined(match([noParams], ["about"])[0]).params;
   void empty;
@@ -59,11 +60,11 @@ function defined(v) {
   );
 
   // Verify parent option accumulates params at type level
-  const parentRoute = route("posts/:postId", { component: c });
+  const parentRoute = route("posts/:postId", { component: c }, []);
   const childRoute = route(":commentId", {
     component: c,
     parent: () => parentRoute
-  });
+  }, []);
   /** @type {string} */
   const postId = defined(match([childRoute], ["42"])[0]).params.postId;
   /** @type {string} */
@@ -103,25 +104,25 @@ describe("lazy", () => {
 
 describe("match", () => {
   test("matches a root index route", () => {
-    const index = route({ component: c });
-    const result = match([index], []);
-    assert.deepEqual(result, [{ route: index, params: {} }]);
+    const idx = index({ component: c });
+    const result = match([idx], []);
+    assert.deepEqual(result, [{ route: idx, params: {} }]);
   });
 
   test("returns an empty array when nothing matches", () => {
-    const index = route({ component: c });
-    const result = match([index], ["foo"]);
+    const idx = index({ component: c });
+    const result = match([idx], ["foo"]);
     assert.deepEqual(result, []);
   });
 
   test("matches a single segment", () => {
-    const about = route("about", { component: c });
+    const about = route("about", { component: c }, []);
     const result = match([about], ["about"]);
     assert.deepEqual(result, [{ route: about, params: {} }]);
   });
 
   test("matches a layout with children", () => {
-    const about = route("about", { component: c });
+    const about = route("about", { component: c }, []);
     const root = layout({ component: c }, [about]);
     const result = match([root], ["about"]);
     assert.deepEqual(result, [
@@ -131,7 +132,7 @@ describe("match", () => {
   });
 
   test("matches nested routes", () => {
-    const billing = route("billing", { component: c });
+    const billing = route("billing", { component: c }, []);
     const account = route("account", { component: c }, [billing]);
     const root = layout({ component: c }, [account]);
 
@@ -144,7 +145,7 @@ describe("match", () => {
   });
 
   test("matches :param segments", () => {
-    const detail = route(":id", { component: c });
+    const detail = route(":id", { component: c }, []);
     const posts = route("posts", { component: c }, [detail]);
     const root = layout({ component: c }, [posts]);
 
@@ -157,8 +158,8 @@ describe("match", () => {
   });
 
   test("picks first matching child", () => {
-    const alpha = route("alpha", { component: c });
-    const beta = route("beta", { component: c });
+    const alpha = route("alpha", { component: c }, []);
+    const beta = route("beta", { component: c }, []);
     const root = layout({ component: c }, [alpha, beta]);
 
     const result = match([root], ["beta"]);
@@ -170,7 +171,7 @@ describe("match", () => {
 
   test("matches through routes with lazy components", () => {
     const lazyComp = lazy(() => Promise.resolve(c));
-    const child = route("page", { component: c });
+    const child = route("page", { component: c }, []);
     const parent = route("section", { component: lazyComp }, [child]);
     const root = layout({ component: c }, [parent]);
 
@@ -183,15 +184,15 @@ describe("match", () => {
   });
 
   test("matches nested index route", () => {
-    const index = route({ component: c });
-    const settings = route("settings", { component: c }, [index]);
+    const idx = index({ component: c });
+    const settings = route("settings", { component: c }, [idx]);
     const root = layout({ component: c }, [settings]);
 
     const result = match([root], ["settings"]);
     assert.deepEqual(result, [
       { route: root, params: {} },
       { route: settings, params: {} },
-      { route: index, params: {} }
+      { route: idx, params: {} }
     ]);
   });
 });
@@ -199,7 +200,7 @@ describe("match", () => {
 describe("Router", () => {
   test("renders a leaf route component", () => {
     const Home = () => h("p", null, "home");
-    const root = route({ component: Home });
+    const root = index({ component: Home });
 
     const tree = new Router({ route: root, url: "/" }).render();
     assertVNode(unwrap(tree), h(Home, { params: {}, query: {} }));
@@ -209,7 +210,7 @@ describe("Router", () => {
     const Shell = (/** @type {any} */ props) => h("div", null, props.children);
     const About = () => h("p", null, "about");
     const root = layout({ component: Shell }, [
-      route("about", { component: About })
+      route("about", { component: About }, [])
     ]);
 
     const tree = new Router({ route: root, url: "/about" }).render();
@@ -226,7 +227,7 @@ describe("Router", () => {
     const Profile = () => h("p", null, "profile");
     const root = layout({ component: Shell }, [
       route("settings", { component: Settings }, [
-        route("profile", { component: Profile })
+        route("profile", { component: Profile }, [])
       ])
     ]);
 
@@ -250,8 +251,8 @@ describe("Router", () => {
     const Home = () => h("p", null, "home");
     const About = () => h("p", null, "about");
     const root = layout({ component: Shell }, [
-      route({ component: Home }),
-      route("about", { component: About })
+      index({ component: Home }),
+      route("about", { component: About }, [])
     ]);
 
     const tree = new Router({ route: root, url: "/" }).render();
@@ -262,14 +263,14 @@ describe("Router", () => {
   });
 
   test("returns null when nothing matches", () => {
-    const root = route("about", { component: c });
+    const root = route("about", { component: c }, []);
     const tree = new Router({ route: root, url: "/nope" }).render();
     assert.equal(tree, null);
   });
 
   test("passes params to matched components", () => {
     const Post = (/** @type {any} */ props) => h("p", null, props.params.id);
-    const root = route(":id", { component: Post });
+    const root = route(":id", { component: Post }, []);
 
     const tree = new Router({ route: root, url: "/42" }).render();
     assertVNode(unwrap(tree), h(Post, { params: { id: "42" }, query: {} }));
@@ -283,7 +284,7 @@ describe("Router", () => {
       h("p", null, props.params.commentId);
     const root = layout({ component: Shell }, [
       route("posts/:postId", { component: Post }, [
-        route(":commentId", { component: Comment })
+        route(":commentId", { component: Comment }, [])
       ])
     ]);
 
@@ -305,7 +306,7 @@ describe("Router", () => {
 
   test("passes query string params as props", () => {
     const Home = () => h("p", null, "home");
-    const root = route({ component: Home });
+    const root = index({ component: Home });
 
     const tree = new Router({ route: root, url: "/?foo=bar&baz=1" }).render();
     assertVNode(
@@ -316,7 +317,7 @@ describe("Router", () => {
 
   test("decodes query string keys and values", () => {
     const Home = () => h("p", null, "home");
-    const root = route({ component: Home });
+    const root = index({ component: Home });
 
     const tree = new Router({
       route: root,
@@ -330,7 +331,7 @@ describe("Router", () => {
 
   test("passes empty query when no query string", () => {
     const Home = () => h("p", null, "home");
-    const root = route({ component: Home });
+    const root = index({ component: Home });
 
     const tree = new Router({ route: root, url: "/" }).render();
     assertVNode(unwrap(tree), h(Home, { params: {}, query: {} }));
@@ -342,7 +343,8 @@ describe("Router", () => {
     const lazyComp = lazy(() => Promise.resolve(c));
     const sectionRoute = route(
       "section",
-      { component: lazyComp, fallback: Spinner }
+      { component: lazyComp, fallback: Spinner },
+      []
     );
     const root = layout({ component: Shell }, [sectionRoute]);
 
@@ -358,7 +360,7 @@ describe("Router", () => {
     const Shell = (/** @type {any} */ props) => h("div", null, props.children);
     const Page = () => h("p", null, "page");
     const lazyPage = lazy(() => Promise.resolve(Page));
-    const pageRoute = route("page", { component: lazyPage });
+    const pageRoute = route("page", { component: lazyPage }, []);
     const root = layout({ component: Shell }, [pageRoute]);
 
     const router = new Router({ route: root, url: "/page" });
@@ -391,7 +393,7 @@ describe("Router", () => {
 
     const root = layout({ component: Shell }, [
       route("settings", { component: lazySettings }, [
-        route("profile", { component: lazyProfile })
+        route("profile", { component: lazyProfile }, [])
       ])
     ]);
 
@@ -425,7 +427,7 @@ describe("preload", () => {
   test("resolves lazy components by path", async () => {
     const Page = () => h("p", null, "page");
     const lazyPage = lazy(() => Promise.resolve(Page));
-    const pageRoute = route("page", { component: lazyPage });
+    const pageRoute = route("page", { component: lazyPage }, []);
     const root = layout({ component: c }, [pageRoute]);
 
     await preload(root, "/page");
@@ -439,7 +441,7 @@ describe("preload", () => {
     const lazyPage = lazy(() => Promise.resolve(Page));
 
     const sectionRoute = route("section", { component: lazySection }, [
-      route("page", { component: lazyPage })
+      route("page", { component: lazyPage }, [])
     ]);
     const root = layout({ component: c }, [sectionRoute]);
 
@@ -449,7 +451,7 @@ describe("preload", () => {
   });
 
   test("no-ops on non-lazy path", async () => {
-    const children = [route("page", { component: c })];
+    const children = [route("page", { component: c }, [])];
     const sectionRoute = route("section", { component: c }, children);
     const root = layout({ component: c }, [sectionRoute]);
 
@@ -459,7 +461,7 @@ describe("preload", () => {
 
   test("renders context provider", () => {
     const Home = () => h("p", null, "home");
-    const root = route({ component: Home });
+    const root = index({ component: Home });
 
     const router = new Router({ route: root, url: "/" });
     const tree = /** @type {any} */ (router.render());
@@ -488,8 +490,8 @@ describe("navigate", () => {
     const Home = () => h("p", null, "home");
     const About = () => h("p", null, "about");
     const root = layout({ component: c }, [
-      route({ component: Home }),
-      route("about", { component: About })
+      index({ component: Home }),
+      route("about", { component: About }, [])
     ]);
 
     const router = new Router({ route: root });
@@ -523,7 +525,7 @@ describe("navigate", () => {
     init({ source: mem });
 
     const Home = () => h("p", null, "home");
-    const root = route({ component: Home });
+    const root = index({ component: Home });
 
     const router = new Router({ route: root, url: "/" });
     let rendered = false;
@@ -542,7 +544,7 @@ describe("navigate", () => {
     const mem = memory();
     init({ source: mem });
 
-    const root = route({ component: c });
+    const root = index({ component: c });
     const router1 = new Router({ route: root });
     const router2 = new Router({ route: root });
     let count = 0;
@@ -562,7 +564,7 @@ describe("navigate", () => {
     const mem = memory();
     init({ source: mem });
 
-    const root = route({ component: c });
+    const root = index({ component: c });
     const router = new Router({ route: root });
     let count = 0;
     router.forceUpdate = () => count++;
@@ -586,7 +588,7 @@ describe("Suspense", () => {
 
     const root = layout({ component: Shell }, [
       route("section", { component: Section }, [
-        route("page", { component: Page })
+        route("page", { component: Page }, [])
       ])
     ]);
 
@@ -607,7 +609,7 @@ describe("Suspense", () => {
 
   test("Boundary without fallback renders null while loading", () => {
     const lazyComp = lazy(() => Promise.resolve(c));
-    const sectionRoute = route("section", { component: lazyComp });
+    const sectionRoute = route("section", { component: lazyComp }, []);
     const root = layout({ component: c }, [sectionRoute]);
 
     const tree = new Router({ route: root, url: "/section" }).render();
@@ -620,7 +622,7 @@ describe("Suspense", () => {
     const Page = () => h("p", null, "page");
     const lazyPage = lazy(() => Promise.resolve(Page));
 
-    const pageRoute = route("page", { component: lazyPage });
+    const pageRoute = route("page", { component: lazyPage }, []);
     const root = layout({ component: Shell }, [pageRoute]);
 
     const router = new Router({ route: root, url: "/page" });
@@ -641,7 +643,7 @@ describe("Suspense", () => {
 
   test("fallback prop is passed through route()", () => {
     const Spinner = () => h("p", null, "loading...");
-    const r = route("foo", { component: c, fallback: Spinner });
+    const r = route("foo", { component: c, fallback: Spinner }, []);
     assert.equal(r.fallback, Spinner);
   });
 
@@ -656,7 +658,8 @@ describe("Suspense", () => {
     const Spinner = () => h("p", null, "loading...");
     const sectionRoute = route(
       "section",
-      { component: lazyComp, fallback: Spinner }
+      { component: lazyComp, fallback: Spinner },
+      []
     );
     const root = layout({ component: c }, [sectionRoute]);
 
